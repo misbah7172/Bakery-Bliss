@@ -35,6 +35,7 @@ const CustomerSettings = lazy(() => import("@/pages/dashboard/customer/settings"
 const JuniorBakerApplyPromotion = lazy(() => import("@/pages/dashboard/junior-baker/apply-promotion"));
 
 // Main Baker Dashboard Pages
+const MainBakerDashboard = lazy(() => import("@/pages/dashboard/main-baker"));
 const MainBakerAddProduct = lazy(() => import("@/pages/dashboard/main-baker/add-product"));
 
 // Loading component

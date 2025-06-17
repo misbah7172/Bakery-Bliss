@@ -105,7 +105,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
 
 export const useChat = (orderId: number) => {
   const context = useContext(ChatContext);
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const queryClient = useQueryClient();
 
   if (!context) {
@@ -133,15 +133,24 @@ export const useChat = (orderId: number) => {
     senderName: msg.senderName || "Unknown"
   }));
 
-  const sendMessage = (message: string) => {
+  const sendMessage = (message: string, receiverId: number, orderId: number) => {
+    if (!context.socket || !context.isConnected || !token) {
+      // Fallback to REST API if WebSocket is not available
+      sendMessageMutation.mutate({
+        orderId,
+        message
+      });
+      return;
+    }
+
     // Send via WebSocket for real-time
-    context.sendMessage(orderId, message);
-    
-    // Also send via API as backup
-    sendMessageMutation.mutate({
+    context.socket.send(JSON.stringify({
+      type: 'chat_message',
       orderId,
-      message
-    });
+      messageText: message,
+      receiverId,
+      token
+    }));
   };
 
   return {

@@ -725,6 +725,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get all junior bakers for order assignment
+  app.get("/api/users/junior-bakers", authenticate, async (req, res) => {
+    try {
+      const juniorBakers = await storage.getJuniorBakers();
+      res.json(juniorBakers);
+    } catch (error) {
+      console.error("Error fetching junior bakers:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // ===== INITIALIZE HTTP SERVER =====
   const httpServer = createServer(app);
 
@@ -732,60 +743,89 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
   wss.on('connection', (ws, req) => {
-    // Extract token from URL params
-    const url = new URL(req.url || '', `http://${req.headers.host}`);
-    const token = url.searchParams.get('token');
+    let userId: number | null = null;
     
-    if (!token) {
-      ws.close(1008, 'Authentication required');
-      return;
-    }
-    
-    try {
-      // Verify token
-      const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
-      const userId = decoded.userId;
-      
-      // Store client connection
-      clients.set(userId, ws);
-      
-      // Handle messages
-      ws.on('message', async (message) => {
-        try {
-          const data = JSON.parse(message.toString());
-          
-          if (data.type === 'chat') {
-            // Save to database
-            const chat = await storage.createChat({
-              senderId: userId,
-              receiverId: data.receiverId,
-              orderId: data.orderId,
-              message: data.message,
-              isRead: false
-            });
-            
-            // Forward to receiver if online
-            const receiverWs = clients.get(data.receiverId);
-            if (receiverWs && receiverWs.readyState === WebSocket.OPEN) {
-              receiverWs.send(JSON.stringify({
-                type: 'chat',
-                chat
-              }));
-            }
+    ws.on('message', async (message) => {
+      try {
+        const data = JSON.parse(message.toString());
+        
+        if (data.type === 'auth') {
+          // Handle authentication
+          const token = data.token;
+          if (!token) {
+            ws.close(1008, 'Authentication required');
+            return;
           }
-        } catch (error) {
-          console.error('WebSocket message error:', error);
+          
+          try {
+            const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
+            userId = decoded.userId;
+            
+            // Store client connection
+            clients.set(userId, ws);
+            
+            // Send authentication success
+            ws.send(JSON.stringify({ type: 'auth_success' }));
+          } catch (error) {
+            console.error('WebSocket authentication error:', error);
+            ws.close(1008, 'Invalid token');
+          }
+        } else if (data.type === 'chat_message' && userId) {
+          // Handle chat message
+          const { orderId, messageText } = data;
+          
+          // Save message to database
+          const chat = await storage.createChat({
+            senderId: userId,
+            receiverId: data.receiverId,
+            orderId: parseInt(orderId),
+            message: messageText,
+            isRead: false
+          });
+          
+          // Get order details to determine receivers
+          const order = await storage.getOrder(parseInt(orderId));
+          if (!order) {
+            console.error('Order not found:', orderId);
+            return;
+          }
+          
+          // Determine receivers based on roles
+          const receivers = new Set<number>();
+          if (order.userId) receivers.add(order.userId); // Customer
+          if (order.juniorBakerId) receivers.add(order.juniorBakerId); // Junior Baker
+          if (order.mainBakerId) receivers.add(order.mainBakerId); // Main Baker
+          
+          // Forward message to all receivers
+          const messageData = {
+            type: 'new_message',
+            orderId: parseInt(orderId),
+            message: {
+              ...chat,
+              senderName: (await storage.getUser(userId))?.fullName || 'Unknown'
+            }
+          };
+          
+          receivers.forEach(receiverId => {
+            if (receiverId !== userId) { // Don't send back to sender
+              const receiverWs = clients.get(receiverId);
+              if (receiverWs && receiverWs.readyState === WebSocket.OPEN) {
+                receiverWs.send(JSON.stringify(messageData));
+              }
+            }
+          });
         }
-      });
-      
-      // Handle disconnection
-      ws.on('close', () => {
+      } catch (error) {
+        console.error('WebSocket message error:', error);
+      }
+    });
+    
+    // Handle disconnection
+    ws.on('close', () => {
+      if (userId) {
         clients.delete(userId);
-      });
-      
-    } catch (error) {
-      ws.close(1008, 'Invalid token');
-    }
+      }
+    });
   });
 
   // Admin API Routes

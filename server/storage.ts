@@ -10,7 +10,8 @@ import {
   orderItems, type OrderItem, type InsertOrderItem,
   shippingInfo, type ShippingInfo, type InsertShippingInfo,
   chats, type Chat, type InsertChat,
-  bakerApplications, type BakerApplication, type InsertBakerApplication
+  bakerApplications, type BakerApplication, type InsertBakerApplication,
+  reviews, type Review, type InsertReview
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ne, desc, sql, like, or, gte } from "drizzle-orm";
@@ -87,6 +88,9 @@ export interface IStorage {
   deleteUser(userId: number): Promise<void>;
   updateProduct(productId: number, updateData: any): Promise<Product>;
   deleteProduct(productId: number): Promise<void>;
+
+  // Get all junior bakers
+  getJuniorBakers(): Promise<User[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -509,44 +513,95 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getMainBakerStats(): Promise<any> {
-    // Get incoming orders
-    const incomingOrdersResult = await db.select({ count: sql`count(*)` })
+    try {
+      // Get incoming orders (pending orders without a junior baker)
+      const incomingOrdersResult = await db.select({ count: sql`count(*)` })
+        .from(orders)
+        .where(and(
+          eq(orders.status, 'pending'),
+          sql`${orders.juniorBakerId} IS NULL`
+        ));
+      const incomingOrders = Number(incomingOrdersResult[0]?.count) || 0;
+      
+      // Get pending tasks (orders in processing or quality check)
+      const pendingTasksResult = await db.select({ count: sql`count(*)` })
+        .from(orders)
+        .where(or(
+          eq(orders.status, 'processing'),
+          eq(orders.status, 'quality_check')
+        ));
+      const pendingTasks = Number(pendingTasksResult[0]?.count) || 0;
+      
+      // Calculate average task time (in minutes)
+      const completedOrdersResult = await db.select({
+        avgTime: sql`AVG(EXTRACT(EPOCH FROM (updated_at - created_at))/60)`
+      })
       .from(orders)
-      .where(eq(orders.status, 'pending'));
-    const incomingOrders = Number(incomingOrdersResult[0]?.count) || 0;
-    
-    // Get pending tasks
-    const pendingTasksResult = await db.select({ count: sql`count(*)` })
-      .from(orders)
-      .where(or(
-        eq(orders.status, 'processing'),
-        eq(orders.status, 'quality_check')
+      .where(and(
+        eq(orders.status, 'ready'),
+        sql`updated_at > created_at`
       ));
-    const pendingTasks = Number(pendingTasksResult[0]?.count) || 0;
-    
-    // Get average task time (in minutes) - this is a simplification
-    const avgTaskTime = 45; // Placeholder value
-    
-    // Get team performance
-    const teamPerformance = 91; // Placeholder value
-    
-    // Get orders needing assignment to a junior baker
-    const ordersNeedingAssignment = await db.select()
+      const avgTaskTime = Math.round(Number(completedOrdersResult[0]?.avgTime) || 45);
+      
+      // Calculate team performance (percentage of orders completed on time)
+      const performanceResult = await db.select({
+        total: sql`count(*)`,
+        onTime: sql`count(*) filter (where deadline >= updated_at)`
+      })
       .from(orders)
+      .where(eq(orders.status, 'ready'));
+      
+      const total = Number(performanceResult[0]?.total) || 0;
+      const onTime = Number(performanceResult[0]?.onTime) || 0;
+      const teamPerformance = total > 0 ? Math.round((onTime / total) * 100) : 95;
+      
+      // Get orders needing assignment to a junior baker
+      const ordersNeedingAssignment = await db.select({
+        id: orders.id,
+        orderId: orders.orderId,
+        status: orders.status,
+        deadline: orders.deadline,
+        customerName: users.fullName,
+        items: sql`string_agg(${orderItems.quantity} || 'x ' || ${products.name}, ', ')`
+      })
+      .from(orders)
+      .leftJoin(users, eq(orders.userId, users.id))
+      .leftJoin(orderItems, eq(orders.id, orderItems.orderId))
+      .leftJoin(products, eq(orderItems.productId, products.id))
       .where(and(
         eq(orders.status, 'pending'),
         sql`${orders.juniorBakerId} IS NULL`
       ))
+      .groupBy(orders.id, users.fullName)
       .orderBy(orders.deadline)
       .limit(5);
-    
-    return {
-      incomingOrders,
-      pendingTasks,
-      avgTaskTime,
-      teamPerformance,
-      ordersNeedingAssignment
-    };
+      
+      return {
+        incomingOrders,
+        pendingTasks,
+        avgTaskTime,
+        teamPerformance,
+        ordersNeedingAssignment
+      };
+    } catch (error) {
+      console.error('Error fetching main baker stats:', error);
+      throw error;
+    }
+  }
+
+  // Get all junior bakers
+  async getJuniorBakers(): Promise<User[]> {
+    try {
+      const juniorBakers = await db.select()
+        .from(users)
+        .where(eq(users.role, 'junior_baker'))
+        .orderBy(users.fullName);
+      
+      return juniorBakers;
+    } catch (error) {
+      console.error('Error fetching junior bakers:', error);
+      throw error;
+    }
   }
   
   // Shipping info methods
