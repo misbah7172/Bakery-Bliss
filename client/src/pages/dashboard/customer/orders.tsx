@@ -8,6 +8,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Package, Clock, ShoppingCart, Check, X, MessageCircle } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
+import { getQueryFn } from "@/lib/queryClient";
 
 // Mock data for orders until backend connected
 interface OrderItem {
@@ -21,13 +23,13 @@ interface OrderItem {
 
 interface Order {
   id: number;
-  orderNumber: string;
+  orderId: string;
   status: string;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
   totalAmount: number;
   items: OrderItem[];
-  estimatedDelivery?: Date;
+  deadline?: string;
   hasUnreadMessages?: boolean;
   mainBakerId: number;
   juniorBakerId?: number;
@@ -35,8 +37,6 @@ interface Order {
 
 const CustomerOrdersPage = () => {
   const { user } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [orders, setOrders] = useState<Order[]>([]);
   const [activeTab, setActiveTab] = useState("all");
 
   // Status color and label mapping
@@ -49,70 +49,12 @@ const CustomerOrdersPage = () => {
     "cancelled": { color: "bg-red-100 text-red-800", label: "Cancelled" }
   };
 
-  // Load orders
-  useEffect(() => {
-    const fetchOrders = async () => {
-      setLoading(true);
-      try {
-        // Here we would fetch orders from the backend
-        setTimeout(() => {
-          setOrders([
-            {
-              id: 1,
-              orderNumber: "ORD-1001",
-              status: "delivered",
-              createdAt: new Date(Date.now() - 3600000 * 24 * 7),
-              updatedAt: new Date(Date.now() - 3600000 * 24 * 5),
-              totalAmount: 42.99,
-              items: [
-                { id: 1, name: "Birthday Cake", quantity: 1, price: 32.99, imageUrl: "/cake1.jpg" },
-                { id: 2, name: "Delivery", quantity: 1, price: 10.00 }
-              ],
-              estimatedDelivery: new Date(Date.now() - 3600000 * 24 * 5),
-              mainBakerId: 3,
-              juniorBakerId: 2
-            },
-            {
-              id: 2,
-              orderNumber: "ORD-1002",
-              status: "processing",
-              createdAt: new Date(Date.now() - 3600000 * 24 * 2),
-              updatedAt: new Date(Date.now() - 3600000 * 24 * 1),
-              totalAmount: 56.50,
-              items: [
-                { id: 3, name: "Custom Chocolate Cake", quantity: 1, price: 45.50, isCustomCake: true },
-                { id: 4, name: "Delivery", quantity: 1, price: 11.00 }
-              ],
-              estimatedDelivery: new Date(Date.now() + 3600000 * 24 * 2),
-              hasUnreadMessages: true,
-              mainBakerId: 4,
-              juniorBakerId: 5
-            },
-            {
-              id: 3,
-              orderNumber: "ORD-1003",
-              status: "pending",
-              createdAt: new Date(Date.now() - 3600000 * 3),
-              updatedAt: new Date(Date.now() - 3600000 * 3),
-              totalAmount: 28.75,
-              items: [
-                { id: 5, name: "Chocolate Chip Cookies (Dozen)", quantity: 2, price: 12.99 },
-                { id: 6, name: "Delivery", quantity: 1, price: 2.77 }
-              ],
-              estimatedDelivery: new Date(Date.now() + 3600000 * 24 * 1),
-              mainBakerId: 3
-            }
-          ]);
-          setLoading(false);
-        }, 800);
-      } catch (error) {
-        console.error("Error fetching orders:", error);
-        setLoading(false);
-      }
-    };
-
-    fetchOrders();
-  }, []);
+  // Fetch orders from the API
+  const { data: orders = [], isLoading, error } = useQuery<Order[]>({
+    queryKey: ['/api/orders'],
+    queryFn: getQueryFn({ on401: "throw" }),
+    enabled: !!user,
+  });
 
   // Filter orders based on active tab
   const filteredOrders = orders.filter(order => {
@@ -123,11 +65,22 @@ const CustomerOrdersPage = () => {
     return true;
   });
 
-  if (loading) {
+  if (isLoading) {
     return (
       <AppLayout showSidebar sidebarType="customer">
         <div className="flex items-center justify-center h-64">
           <Loader2 className="h-8 w-8 text-primary animate-spin" />
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <AppLayout showSidebar sidebarType="customer">
+        <div className="flex flex-col items-center justify-center h-64 text-red-600">
+          <h2 className="text-xl font-bold mb-2">Error loading orders</h2>
+          <p>{error.message || "Failed to load orders"}</p>
         </div>
       </AppLayout>
     );
@@ -176,7 +129,7 @@ const CustomerOrdersPage = () => {
                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
                         <div>
                           <CardTitle className="text-lg">
-                            Order #{order.orderNumber}
+                            Order #{order.orderId}
                           </CardTitle>
                           <CardDescription>
                             Placed on {new Date(order.createdAt).toLocaleDateString()}
@@ -200,61 +153,50 @@ const CustomerOrdersPage = () => {
                       <div className="mt-4 space-y-3">
                         {order.items.map((item) => (
                           <div key={item.id} className="flex items-center justify-between">
-                            <div className="flex items-center">
-                              <div className="h-12 w-12 rounded-md bg-muted mr-3 flex items-center justify-center">
-                                {item.imageUrl ? (
-                                  <img 
-                                    src={item.imageUrl} 
-                                    alt={item.name}
-                                    className="h-full w-full object-cover rounded-md"
-                                  />
-                                ) : (
-                                  item.isCustomCake ? (
-                                    <span className="text-xl">🎂</span>
-                                  ) : (
-                                    <Package className="h-6 w-6 text-muted-foreground" />
-                                  )
-                                )}
-                              </div>
+                            <div className="flex items-center gap-3">
+                              {item.imageUrl && (
+                                <img 
+                                  src={item.imageUrl} 
+                                  alt={item.name} 
+                                  className="w-12 h-12 object-cover rounded-md"
+                                />
+                              )}
                               <div>
                                 <p className="font-medium">{item.name}</p>
                                 <p className="text-sm text-muted-foreground">
-                                  {item.quantity} × {formatCurrency(item.price)}
+                                  Quantity: {item.quantity}
                                 </p>
                               </div>
                             </div>
-                            <p className="font-medium">
-                              {formatCurrency(item.price * item.quantity)}
-                            </p>
+                            <p className="font-medium">{formatCurrency(item.price * item.quantity)}</p>
                           </div>
                         ))}
+                        <div className="border-t pt-3 mt-3">
+                          <div className="flex justify-between items-center">
+                            <p className="font-medium">Total</p>
+                            <p className="font-bold">{formatCurrency(order.totalAmount)}</p>
+                          </div>
+                        </div>
                       </div>
-                      
-                      <div className="mt-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-4 border-t">
-                        <div className="flex items-center">
-                          <Clock className="h-4 w-4 mr-2 text-muted-foreground" />
-                          <span className="text-sm text-muted-foreground">
-                            {order.status === "delivered" ? (
-                              <span>Delivered on {new Date(order.estimatedDelivery || order.updatedAt).toLocaleDateString()}</span>
-                            ) : order.estimatedDelivery ? (
-                              <span>Estimated delivery: {new Date(order.estimatedDelivery).toLocaleDateString()}</span>
-                            ) : (
-                              <span>Delivery date to be confirmed</span>
-                            )}
-                          </span>
-                        </div>
-                        
-                        <div className="flex items-center gap-3">
-                          <Link href={`/dashboard/customer/chat/${order.id}`}>
-                            <Button variant="outline" size="sm">
-                              <MessageCircle className="h-4 w-4 mr-2" />
-                              Chat with Baker
-                            </Button>
-                          </Link>
-                          <Link href={`/dashboard/customer/orders/${order.id}`}>
-                            <Button size="sm">View Details</Button>
-                          </Link>
-                        </div>
+                      <div className="mt-4 flex justify-end gap-2">
+                        {order.status === "ready" && (
+                          <Button variant="outline" size="sm">
+                            <Check className="mr-2 h-4 w-4" />
+                            Mark as Delivered
+                          </Button>
+                        )}
+                        {order.status === "pending" && (
+                          <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700">
+                            <X className="mr-2 h-4 w-4" />
+                            Cancel Order
+                          </Button>
+                        )}
+                        <Link href={`/dashboard/customer/orders/${order.id}`}>
+                          <Button size="sm">
+                            <MessageCircle className="mr-2 h-4 w-4" />
+                            View Details
+                          </Button>
+                        </Link>
                       </div>
                     </CardContent>
                   </Card>
