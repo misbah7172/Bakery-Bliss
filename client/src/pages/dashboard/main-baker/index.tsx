@@ -10,7 +10,7 @@ import { Loader2, Utensils, ClipboardList, Clock, Award, Plus } from "lucide-rea
 import { apiRequest, getQueryFn } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import ChatComponent from "@/components/ui/chat";
+import ChatComponent from "@/components/ui/chat-simple";
 import {
   Select,
   SelectContent,

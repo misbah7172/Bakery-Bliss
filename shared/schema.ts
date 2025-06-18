@@ -18,7 +18,7 @@ export const users = pgTable("users", {
   role: roleEnum("role").notNull().default('customer'),
   profileImage: text("profile_image"),
   createdAt: timestamp("created_at").defaultNow(),
-  customerSince: integer("customer_since").default(() => new Date().getFullYear()),
+  customerSince: integer("customer_since").default(2025),
 });
 
 // Products table
@@ -125,15 +125,25 @@ export const orderItems = pgTable("order_items", {
   pricePerItem: real("price_per_item").notNull(),
 });
 
-// Chats table
+// Chats table - supports multi-participant conversations per order
 export const chats = pgTable("chats", {
   id: serial("id").primaryKey(),
-  senderId: integer("sender_id").references(() => users.id),
-  receiverId: integer("receiver_id").references(() => users.id),
-  orderId: integer("order_id").references(() => orders.id),
+  orderId: integer("order_id").references(() => orders.id).notNull(), // Chat belongs to an order
+  senderId: integer("sender_id").references(() => users.id).notNull(), // Who sent the message
   message: text("message").notNull(),
   timestamp: timestamp("timestamp").defaultNow(),
   isRead: boolean("is_read").default(false),
+  // Remove receiverId since chat is order-based with multiple participants
+});
+
+// Chat participants table - tracks who can participate in each order's chat
+export const chatParticipants = pgTable("chat_participants", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").references(() => orders.id).notNull(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  role: text("role").notNull(), // 'customer', 'junior_baker', 'main_baker'
+  joinedAt: timestamp("joined_at").defaultNow(),
+  lastReadAt: timestamp("last_read_at"),
 });
 
 // Baker application table
@@ -175,6 +185,7 @@ export const insertOrderSchema = createInsertSchema(orders).omit({ id: true, cre
 export const insertOrderItemSchema = createInsertSchema(orderItems).omit({ id: true });
 export const insertShippingInfoSchema = createInsertSchema(shippingInfo).omit({ id: true, createdAt: true });
 export const insertChatSchema = createInsertSchema(chats).omit({ id: true, timestamp: true });
+export const insertChatParticipantSchema = createInsertSchema(chatParticipants).omit({ id: true, joinedAt: true });
 export const insertBakerApplicationSchema = createInsertSchema(bakerApplications).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertReviewSchema = createInsertSchema(reviews).omit({ id: true, createdAt: true, updatedAt: true });
 
@@ -208,6 +219,9 @@ export type InsertOrderItem = z.infer<typeof insertOrderItemSchema>;
 
 export type Chat = typeof chats.$inferSelect;
 export type InsertChat = z.infer<typeof insertChatSchema>;
+
+export type ChatParticipant = typeof chatParticipants.$inferSelect;
+export type InsertChatParticipant = z.infer<typeof insertChatParticipantSchema>;
 
 export type BakerApplication = typeof bakerApplications.$inferSelect;
 export type InsertBakerApplication = z.infer<typeof insertBakerApplicationSchema>;

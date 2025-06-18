@@ -1,9 +1,8 @@
 import express, { type Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
-import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
+import session from "express-session";
 import { z } from "zod";
 import {
   insertUserSchema,
@@ -14,34 +13,27 @@ import {
   insertBakerApplicationSchema,
   orderStatusEnum,
   roleEnum,
-  insertShippingInfoSchema
+  insertShippingInfoSchema,
+  type InsertChat
 } from "@shared/schema";
-
-// JWT Secret
-const JWT_SECRET = process.env.JWT_SECRET || "bakerybliss-secret-key";
-
-// Define WebSocket clients map to track connections
-const clients = new Map<number, WebSocket>();
 
 // Authentication middleware
 const authenticate = async (req: Request, res: Response, next: any) => {
   try {
-    const token = req.headers.authorization?.split(" ")[1];
-    if (!token) {
-      console.log('No token provided in request');
-      return res.status(401).json({ message: "No token provided" });
+    if (!req.session?.userId) {
+      console.log('No user session found');
+      return res.status(401).json({ message: "Not authenticated" });
     }
 
-    console.log('Authentication attempt with token:', token);
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
-    console.log('Token decoded:', decoded);
+    console.log('Authentication attempt for user:', req.session.userId);
     
-    const user = await storage.getUser(decoded.userId);
+    const user = await storage.getUser(req.session.userId);
     console.log('User found:', user);
     
     if (!user) {
-      console.log('No user found for ID:', decoded.userId);
-      return res.status(401).json({ message: "Invalid token" });
+      console.log('No user found for ID:', req.session.userId);
+      req.session.destroy(() => {});
+      return res.status(401).json({ message: "Invalid session" });
     }
     
     req.user = user;
@@ -134,12 +126,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...userData,
         password: hashedPassword
       });
-      
-      // Create and send token
-      const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: "24h" });
+        // Create session
+      req.session.userId = user.id;
       
       res.status(201).json({
-        token,
         user: {
           id: user.id,
           email: user.email,
@@ -177,12 +167,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!isPasswordValid) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
-      
-      // Create and send token
-      const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: "24h" });
+        // Create session
+      req.session.userId = user.id;
       
       res.json({
-        token,
         user: {
           id: user.id,
           email: user.email,
@@ -190,10 +178,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           fullName: user.fullName,
           role: user.role
         }
-      });
-    } catch (error) {
+      });    } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
+  });
+
+  // Logout route
+  app.post("/api/auth/logout", (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).json({ message: "Could not log out" });
+      }
+      res.clearCookie('connect.sid'); // Clear session cookie
+      res.json({ message: "Logged out successfully" });
+    });
   });
 
   // ===== USER ROUTES =====
@@ -510,18 +508,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(order);
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
+    }  });
+
+  // Get customer's orders
+  app.get("/api/orders/customer", authenticate, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const orders = await storage.getOrdersByUserId(userId);
+      res.json(orders);
+    } catch (error) {
+      console.error("Error fetching customer orders:", error);
+      res.status(500).json({ message: "Internal server error" });
     }
   });
 
   // ===== CHAT ROUTES =====
   
   // Get chats for an order
-  app.get("/api/chats/order/:orderId", authenticate, async (req, res) => {
+  app.get("/api/chats/:orderId", authenticate, async (req, res) => {
     try {
       const orderId = parseInt(req.params.orderId);
       const chats = await storage.getChatsByOrderId(orderId);
       res.json(chats);
     } catch (error) {
+      console.error("Error fetching chats:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Send a new chat message
+  app.post("/api/chats", authenticate, async (req, res) => {
+    try {
+      const { orderId, message } = req.body;
+      
+      if (!orderId || !message || !message.trim()) {
+        return res.status(400).json({ message: "Order ID and message are required" });
+      }
+
+      // Create the chat message
+      const chatData: InsertChat = {
+        orderId: parseInt(orderId),
+        senderId: req.user.id,
+        message: message.trim(),
+        isRead: false
+      };
+
+      const chat = await storage.createChat(chatData);
+      
+      // Initialize chat participants if not already done
+      await storage.initializeChatForOrder(parseInt(orderId));
+      
+      res.status(201).json(chat);
+    } catch (error) {
+      console.error("Error creating chat message:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get chat participants for an order
+  app.get("/api/chats/:orderId/participants", authenticate, async (req, res) => {
+    try {
+      const orderId = parseInt(req.params.orderId);
+      const participants = await storage.getChatParticipants(orderId);
+      res.json(participants);
+    } catch (error) {
+      console.error("Error fetching chat participants:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });
@@ -735,98 +786,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Internal server error" });
     }
   });
-
   // ===== INITIALIZE HTTP SERVER =====
   const httpServer = createServer(app);
-
-  // ===== INITIALIZE WEBSOCKET SERVER =====
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
-
-  wss.on('connection', (ws, req) => {
-    let userId: number | null = null;
-    
-    ws.on('message', async (message) => {
-      try {
-        const data = JSON.parse(message.toString());
-        
-        if (data.type === 'auth') {
-          // Handle authentication
-          const token = data.token;
-          if (!token) {
-            ws.close(1008, 'Authentication required');
-            return;
-          }
-          
-          try {
-            const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
-            userId = decoded.userId;
-            
-            // Store client connection
-            clients.set(userId, ws);
-            
-            // Send authentication success
-            ws.send(JSON.stringify({ type: 'auth_success' }));
-          } catch (error) {
-            console.error('WebSocket authentication error:', error);
-            ws.close(1008, 'Invalid token');
-          }
-        } else if (data.type === 'chat_message' && userId) {
-          // Handle chat message
-          const { orderId, messageText } = data;
-          
-          // Save message to database
-          const chat = await storage.createChat({
-            senderId: userId,
-            receiverId: data.receiverId,
-            orderId: parseInt(orderId),
-            message: messageText,
-            isRead: false
-          });
-          
-          // Get order details to determine receivers
-          const order = await storage.getOrder(parseInt(orderId));
-          if (!order) {
-            console.error('Order not found:', orderId);
-            return;
-          }
-          
-          // Determine receivers based on roles
-          const receivers = new Set<number>();
-          if (order.userId) receivers.add(order.userId); // Customer
-          if (order.juniorBakerId) receivers.add(order.juniorBakerId); // Junior Baker
-          if (order.mainBakerId) receivers.add(order.mainBakerId); // Main Baker
-          
-          // Forward message to all receivers
-          const messageData = {
-            type: 'new_message',
-            orderId: parseInt(orderId),
-            message: {
-              ...chat,
-              senderName: (await storage.getUser(userId))?.fullName || 'Unknown'
-            }
-          };
-          
-          receivers.forEach(receiverId => {
-            if (receiverId !== userId) { // Don't send back to sender
-              const receiverWs = clients.get(receiverId);
-              if (receiverWs && receiverWs.readyState === WebSocket.OPEN) {
-                receiverWs.send(JSON.stringify(messageData));
-              }
-            }
-          });
-        }
-      } catch (error) {
-        console.error('WebSocket message error:', error);
-      }
-    });
-    
-    // Handle disconnection
-    ws.on('close', () => {
-      if (userId) {
-        clients.delete(userId);
-      }
-    });
-  });
 
   // Admin API Routes
   // Get admin dashboard stats

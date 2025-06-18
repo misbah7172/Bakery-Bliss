@@ -1,5 +1,6 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+// Legacy token getter - kept for compatibility but not used with session auth
 let getToken: () => string | null = () => null;
 
 export const setTokenGetter = (getter: () => string | null) => {
@@ -13,28 +14,23 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
-export const apiRequest = async (method: string, url: string, data?: any) => {
-  const token = getToken();
+export const apiRequest = async (url: string, method: string = "GET", data?: any) => {
   console.log('Making API request:', {
     method,
     url,
-    hasToken: !!token,
-    tokenValue: token
+    hasData: !!data
   });
   
   const headers: HeadersInit = {
     "Content-Type": "application/json",
   };
 
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
   console.log('Request headers:', headers);
 
   const response = await fetch(url, {
     method,
     headers,
-    credentials: "include",
+    credentials: "include", // Include session cookies
     body: data ? JSON.stringify(data) : undefined,
   });
 
@@ -58,24 +54,18 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const token = getToken();
     console.log('Making query request:', {
-      url: queryKey[0],
-      hasToken: !!token,
-      tokenValue: token
+      url: queryKey[0]
     });
     
     const headers: HeadersInit = {
       "Content-Type": "application/json",
     };
 
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
     console.log('Request headers:', headers);
 
     const res = await fetch(queryKey[0] as string, {
-      credentials: "include",
+      credentials: "include", // Include session cookies
       headers,
     });
 

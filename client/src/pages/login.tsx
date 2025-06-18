@@ -22,9 +22,8 @@ const Login = () => {
     <div className="min-h-screen bg-gradient-to-r from-accent to-primary/20 flex items-center justify-center p-4">
       <div className="flex rounded-xl shadow-md overflow-hidden w-full max-w-4xl">
         {/* Login Form Side */}
-        <div className="w-full md:w-1/2 bg-white p-8 md:p-12">
-          <div className="mb-8">
-            <Logo />
+        <div className="w-full md:w-1/2 bg-white p-8 md:p-12">          <div className="mb-8">
+            <Logo noLink />
           </div>
           
           <h2 className="text-2xl font-poppins font-semibold text-foreground mb-1">Welcome Back!</h2>

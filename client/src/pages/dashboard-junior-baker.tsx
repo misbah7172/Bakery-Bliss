@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
 import { format } from "date-fns";
-import ChatComponent from "@/components/ui/chat";
+import ChatComponent from "@/components/ui/chat-simple";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -77,6 +77,21 @@ const JuniorBakerDashboard = () => {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [updatingOrderId, setUpdatingOrderId] = useState<number | null>(null);
+  
+  // Role-based access control
+  if (user && user.role !== 'junior_baker') {
+    return (
+      <AppLayout>
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-red-600 mb-4">Access Denied</h1>
+            <p className="text-gray-600 mb-4">You don't have permission to access the Junior Baker Dashboard.</p>
+            <Button onClick={() => navigate('/dashboard')}>Go to Your Dashboard</Button>
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
   
   // Redirect if not authenticated or not a junior baker
   if (!user) {
@@ -196,12 +211,10 @@ const JuniorBakerDashboard = () => {
             )}
           </div>
         </div>
-        
-        {/* Team Chat */}
+          {/* Team Chat */}
         <div className="md:w-1/3">
           <ChatComponent 
             orderId={dashboardData?.upcomingTasks?.[0]?.id || 0} 
-            receiverId={dashboardData?.upcomingTasks?.[0]?.userId || 0}
           />
         </div>
       </div>

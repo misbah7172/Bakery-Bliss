@@ -19,14 +19,14 @@ interface ChatContextType {
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 export const ChatProvider = ({ children }: { children: ReactNode }) => {
-  const { user, token } = useAuth();
+  const { user } = useAuth();
   const [socket, setSocket] = useState<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (!user || !token) return;
+    if (!user) return;
 
     // Create WebSocket connection
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -36,8 +36,8 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     ws.onopen = () => {
       console.log("Connected to chat server");
       setIsConnected(true);
-      // Authenticate with server
-      ws.send(JSON.stringify({ type: 'auth', token }));
+      // Authenticate with server using user ID
+      ws.send(JSON.stringify({ type: 'auth', userId: user.id }));
     };
 
     ws.onmessage = (event) => {
@@ -73,21 +73,19 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       setIsConnected(false);
     };
 
-    setSocket(ws);
-
-    return () => {
+    setSocket(ws);    return () => {
       ws.close();
     };
-  }, [user, token, queryClient]);
+  }, [user, queryClient]);
 
   const sendMessage = (orderId: number, messageText: string) => {
-    if (!socket || !isConnected || !token) return;
+    if (!socket || !isConnected) return;
 
     socket.send(JSON.stringify({
       type: 'chat_message',
       orderId: orderId.toString(),
       messageText,
-      token
+      userId: user?.id
     }));
   };
 
@@ -105,7 +103,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
 
 export const useChat = (orderId: number) => {
   const context = useContext(ChatContext);
-  const { user, token } = useAuth();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
 
   if (!context) {
@@ -125,32 +123,21 @@ export const useChat = (orderId: number) => {
       queryClient.invalidateQueries({ queryKey: ["/api/chats", orderId] });
     },
   });
-
-  // Process messages to include current user info
-  const processedMessages: ChatMessage[] = chatData.map((msg: Chat) => ({
-    ...msg,
-    isCurrentUser: msg.senderId === user?.id,
-    senderName: msg.senderName || "Unknown"
-  }));
+  // Process messages to include current user info  
+  const processedMessages: ChatMessage[] = Array.isArray(chatData) 
+    ? chatData.map((msg: any) => ({
+        ...msg,
+        isCurrentUser: msg.senderId === user?.id,
+        senderName: msg.senderName || "Unknown"
+      }))
+    : [];
 
   const sendMessage = (message: string, receiverId: number, orderId: number) => {
-    if (!context.socket || !context.isConnected || !token) {
-      // Fallback to REST API if WebSocket is not available
-      sendMessageMutation.mutate({
-        orderId,
-        message
-      });
-      return;
-    }
-
-    // Send via WebSocket for real-time
-    context.socket.send(JSON.stringify({
-      type: 'chat_message',
+    // Use REST API for now (WebSocket to be implemented later)
+    sendMessageMutation.mutate({
       orderId,
-      messageText: message,
-      receiverId,
-      token
-    }));
+      message
+    });
   };
 
   return {

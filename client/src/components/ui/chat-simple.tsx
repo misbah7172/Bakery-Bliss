@@ -2,17 +2,28 @@ import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { useSimpleChat } from "@/hooks/use-chat-simple";
-import { Send, Loader2 } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { Send, Loader2, Users } from "lucide-react";
 
 interface ChatComponentProps {
   orderId: number;
-  receiverId?: number;
 }
 
-const ChatComponent = ({ orderId, receiverId }: ChatComponentProps) => {
-  const { messages, sendMessage, isLoading, isSending } = useSimpleChat(orderId);
+const ChatComponent = ({ orderId }: ChatComponentProps) => {
+  const { user } = useAuth();
+  const { 
+    messages, 
+    participants,
+    customers,
+    juniorBakers,
+    mainBakers,
+    sendMessage, 
+    isLoading, 
+    isSending 
+  } = useSimpleChat(orderId);
   const [message, setMessage] = useState("");
   const chatContainerRef = useRef<HTMLDivElement>(null);
   
@@ -26,9 +37,8 @@ const ChatComponent = ({ orderId, receiverId }: ChatComponentProps) => {
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (message.trim()) {
-      sendMessage(message, receiverId);  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      handleSendMessage(e);
+      sendMessage(message);
+      setMessage("");
     }
   };
   
@@ -36,12 +46,26 @@ const ChatComponent = ({ orderId, receiverId }: ChatComponentProps) => {
     const date = typeof timestamp === 'string' ? new Date(timestamp) : timestamp;
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
+
+  const getRoleColor = (role: string) => {
+    switch (role) {
+      case 'customer': return 'bg-blue-100 text-blue-800';
+      case 'junior_baker': return 'bg-green-100 text-green-800';
+      case 'main_baker': return 'bg-purple-100 text-purple-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getUserRole = (userId: number) => {
+    const participant = participants.find(p => p.userId === userId);
+    return participant?.role || 'unknown';
+  };
   
   if (isLoading) {
     return (
       <Card className="h-full flex flex-col">
         <CardHeader className="py-3 px-4 border-b">
-          <CardTitle className="text-lg">Team Chat</CardTitle>
+          <CardTitle className="text-lg">Order Chat</CardTitle>
         </CardHeader>
         <CardContent className="flex-grow flex items-center justify-center">
           <div className="flex items-center space-x-2">
@@ -56,17 +80,43 @@ const ChatComponent = ({ orderId, receiverId }: ChatComponentProps) => {
   return (
     <Card className="h-full flex flex-col">
       <CardHeader className="py-3 px-4 border-b">
-        <CardTitle className="text-lg">Team Chat</CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg">Order Chat</CardTitle>
+          <div className="flex items-center space-x-2">
+            <Users className="h-4 w-4" />
+            <span className="text-sm text-muted-foreground">{participants.length}</span>
+          </div>
+        </div>
+        
+        {/* Participants */}
+        {participants.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-2">
+            {participants.map((participant) => (
+              <Badge 
+                key={participant.id} 
+                variant="outline" 
+                className={getRoleColor(participant.role)}
+              >
+                {participant.userName} ({participant.role.replace('_', ' ')})
+              </Badge>
+            ))}
+          </div>
+        )}
       </CardHeader>
       
       <CardContent 
-        className="flex-grow p-4 overflow-y-auto space-y-4 custom-scrollbar" 
+        className="flex-grow p-4 overflow-y-auto space-y-4" 
         ref={chatContainerRef}
         style={{ maxHeight: "400px" }}
       >
         {messages.length === 0 ? (
           <div className="flex justify-center items-center h-full">
-            <p className="text-foreground/50">No messages yet. Start the conversation!</p>
+            <div className="text-center">
+              <p className="text-muted-foreground">No messages yet.</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Start the conversation about your order!
+              </p>
+            </div>
           </div>
         ) : (
           messages.map((msg) => (
@@ -76,24 +126,29 @@ const ChatComponent = ({ orderId, receiverId }: ChatComponentProps) => {
             >
               {!msg.isCurrentUser && (
                 <Avatar className="w-8 h-8 mr-2">
-                  <AvatarFallback className="bg-secondary text-white text-xs">
+                  <AvatarFallback className="bg-secondary text-secondary-foreground text-xs">
                     {msg.senderName?.split(' ').map(n => n[0]).join('') || 'U'}
                   </AvatarFallback>
                 </Avatar>
               )}
               
               <div className={msg.isCurrentUser ? 'text-right' : ''}>
-                <div className="flex items-center mb-1">
+                <div className="flex items-center mb-1 gap-2">
                   {!msg.isCurrentUser && (
-                    <span className="text-xs font-medium text-foreground mr-2">{msg.senderName}</span>
+                    <>
+                      <span className="text-xs font-medium text-foreground">{msg.senderName}</span>
+                      <Badge variant="outline" className={`text-xs ${getRoleColor(getUserRole(msg.senderId))}`}>
+                        {getUserRole(msg.senderId).replace('_', ' ')}
+                      </Badge>
+                    </>
                   )}
-                  <span className="text-xs text-foreground/50">{formatTime(msg.timestamp)}</span>
+                  <span className="text-xs text-muted-foreground">{formatTime(msg.timestamp)}</span>
                 </div>
                 
-                <div className={`px-4 py-2 max-w-xs ${
+                <div className={`px-4 py-2 rounded-lg max-w-xs ${
                   msg.isCurrentUser 
-                    ? 'chat-message-customer' 
-                    : 'chat-message-baker'
+                    ? 'bg-primary text-primary-foreground' 
+                    : 'bg-muted text-muted-foreground'
                 }`}>
                   <p className="text-sm">{msg.message}</p>
                 </div>
@@ -101,20 +156,22 @@ const ChatComponent = ({ orderId, receiverId }: ChatComponentProps) => {
               
               {msg.isCurrentUser && (
                 <Avatar className="w-8 h-8 ml-2">
-                  <AvatarFallback className="bg-primary text-white text-xs">Me</AvatarFallback>
+                  <AvatarFallback className="bg-primary text-primary-foreground text-xs">
+                    {user?.fullName?.split(' ').map(n => n[0]).join('') || 'Me'}
+                  </AvatarFallback>
                 </Avatar>
               )}
             </div>
           ))
         )}
       </CardContent>
-        <CardFooter className="p-4 border-t">
+      
+      <CardFooter className="p-4 border-t">
         <form onSubmit={handleSendMessage} className="flex w-full">
           <Input
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder="Type a message..."
+            placeholder="Type your message..."
             className="flex-grow"
             disabled={isSending}
           />

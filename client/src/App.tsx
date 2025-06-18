@@ -33,10 +33,17 @@ const CustomerSettings = lazy(() => import("@/pages/dashboard/customer/settings"
 
 // Junior Baker Dashboard Pages
 const JuniorBakerApplyPromotion = lazy(() => import("@/pages/dashboard/junior-baker/apply-promotion"));
+const JuniorBakerTasks = lazy(() => import("@/pages/dashboard/junior-baker/tasks"));
+const JuniorBakerChat = lazy(() => import("@/pages/dashboard/junior-baker/chat"));
+const JuniorBakerCompleted = lazy(() => import("@/pages/dashboard/junior-baker/completed"));
 
 // Main Baker Dashboard Pages
 const MainBakerDashboard = lazy(() => import("@/pages/dashboard/main-baker"));
 const MainBakerAddProduct = lazy(() => import("@/pages/dashboard/main-baker/add-product"));
+const MainBakerOrders = lazy(() => import("@/pages/dashboard/main-baker/orders"));
+const MainBakerBakers = lazy(() => import("@/pages/dashboard/main-baker/bakers"));
+const MainBakerQuality = lazy(() => import("@/pages/dashboard/main-baker/quality"));
+const MainBakerChat = lazy(() => import("@/pages/dashboard/main-baker/chat"));
 
 // Loading component
 const PageLoader = () => (
@@ -80,12 +87,17 @@ function App() {
         <Route path="/dashboard/customer/chat" component={CustomerChat} />
         <Route path="/dashboard/customer/chat/:orderId" component={CustomerChat} />
         <Route path="/dashboard/customer/settings" component={CustomerSettings} />
-        
-        {/* Junior Baker dashboard pages */}
+          {/* Junior Baker dashboard pages */}
         <Route path="/dashboard/junior-baker/apply-promotion" component={JuniorBakerApplyPromotion} />
-        
-        {/* Main Baker dashboard pages */}
+        <Route path="/dashboard/junior-baker/tasks" component={JuniorBakerTasks} />
+        <Route path="/dashboard/junior-baker/chat" component={JuniorBakerChat} />
+        <Route path="/dashboard/junior-baker/completed" component={JuniorBakerCompleted} />
+          {/* Main Baker dashboard pages */}
         <Route path="/dashboard/main-baker/add-product" component={MainBakerAddProduct} />
+        <Route path="/dashboard/main-baker/orders" component={MainBakerOrders} />
+        <Route path="/dashboard/main-baker/bakers" component={MainBakerBakers} />
+        <Route path="/dashboard/main-baker/quality" component={MainBakerQuality} />
+        <Route path="/dashboard/main-baker/chat" component={MainBakerChat} />
         
         {/* 404 page */}
         <Route component={NotFound} />

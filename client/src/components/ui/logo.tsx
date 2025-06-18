@@ -3,9 +3,10 @@ import { Link } from "wouter";
 interface LogoProps {
   size?: "small" | "medium" | "large";
   color?: "primary" | "white";
+  noLink?: boolean;
 }
 
-const Logo = ({ size = "medium", color = "primary" }: LogoProps) => {
+const Logo = ({ size = "medium", color = "primary", noLink = false }: LogoProps) => {
   const sizeClasses = {
     small: "text-xl",
     medium: "text-2xl",
@@ -27,19 +28,26 @@ const Logo = ({ size = "medium", color = "primary" }: LogoProps) => {
     primary: "bg-primary",
     white: "bg-white"
   };
+    const iconTextClasses = color === "primary" ? "text-white" : "text-primary";
   
-  const iconTextClasses = color === "primary" ? "text-white" : "text-primary";
+  const logoContent = (
+    <div className="flex items-center cursor-pointer">
+      <div className={`${iconSizeClasses[size]} ${bgColorClasses[color]} rounded-xl flex items-center justify-center mr-2`}>
+        <span className={`${iconTextClasses} font-poppins font-bold`}>BB</span>
+      </div>
+      <span className={`${sizeClasses[size]} ${textColorClasses[color]} font-poppins font-semibold`}>
+        Bakery Bliss
+      </span>
+    </div>
+  );
+  
+  if (noLink) {
+    return logoContent;
+  }
   
   return (
     <Link href="/">
-      <div className="flex items-center cursor-pointer">
-        <div className={`${iconSizeClasses[size]} ${bgColorClasses[color]} rounded-xl flex items-center justify-center mr-2`}>
-          <span className={`${iconTextClasses} font-poppins font-bold`}>BB</span>
-        </div>
-        <span className={`${sizeClasses[size]} ${textColorClasses[color]} font-poppins font-semibold`}>
-          Bakery Bliss
-        </span>
-      </div>
+      {logoContent}
     </Link>
   );
 };

@@ -38,6 +38,19 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState("overview");
   const queryClient = useQueryClient();
 
+  // Role-based access control
+  if (user && user.role !== 'admin') {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-red-600 mb-4">Access Denied</h1>
+          <p className="text-gray-600 mb-4">You don't have permission to access the Admin Dashboard.</p>
+          <Button onClick={() => window.location.href = '/dashboard'}>Go to Your Dashboard</Button>
+        </div>
+      </div>
+    );
+  }
+
   // Get admin stats
   const { data: stats, isLoading: statsLoading, error: statsError } = useQuery<AdminStats>({
     queryKey: ["/api/admin/stats"],

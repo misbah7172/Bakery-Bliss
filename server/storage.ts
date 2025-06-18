@@ -10,6 +10,7 @@ import {
   orderItems, type OrderItem, type InsertOrderItem,
   shippingInfo, type ShippingInfo, type InsertShippingInfo,
   chats, type Chat, type InsertChat,
+  chatParticipants, type ChatParticipant, type InsertChatParticipant,
   bakerApplications, type BakerApplication, type InsertBakerApplication,
   reviews, type Review, type InsertReview
 } from "@shared/schema";
@@ -315,8 +316,7 @@ export class DatabaseStorage implements IStorage {
     return order;
   }
 
-  async assignOrderToJuniorBaker(orderId: number, juniorBakerId: number): Promise<Order | undefined> {
-    // Get the order to check if it already has a chat
+  async assignOrderToJuniorBaker(orderId: number, juniorBakerId: number): Promise<Order | undefined> {    // Get the order to check if it already has a chat
     const [existingOrder] = await db.select().from(orders).where(eq(orders.id, orderId));
     
     // Update the order with the junior baker ID
@@ -330,27 +330,8 @@ export class DatabaseStorage implements IStorage {
       .returning();
     
     if (order) {
-      // Create initial chat message automatically
-      const customerMessage: InsertChat = {
-        senderId: order.userId,
-        receiverId: juniorBakerId,
-        orderId: order.id,
-        message: "Hello! I've placed this order and look forward to working with you.",
-        isRead: false
-      };
-      
-      await this.createChat(customerMessage);
-      
-      // Create baker welcome message
-      const bakerMessage: InsertChat = {
-        senderId: juniorBakerId,
-        receiverId: order.userId,
-        orderId: order.id,
-        message: "Hi there! I'll be working on your order. Please let me know if you have any specific requests or questions!",
-        isRead: false
-      };
-      
-      await this.createChat(bakerMessage);
+      // Initialize chat participants for this order
+      await this.initializeChatForOrder(order.id);
     }
     
     return order;
@@ -366,18 +347,86 @@ export class DatabaseStorage implements IStorage {
       throw error;
     }
   }
-  
-  // Chat methods
+    // Chat methods
   async createChat(chatData: InsertChat): Promise<Chat> {
     const [chat] = await db.insert(chats).values(chatData).returning();
     return chat;
   }
-
-  async getChatsByOrderId(orderId: number): Promise<Chat[]> {
-    return await db.select()
+  async getChatsByOrderId(orderId: number): Promise<(Chat & { senderName: string })[]> {
+    const result = await db.select({
+      id: chats.id,
+      orderId: chats.orderId,
+      senderId: chats.senderId,
+      message: chats.message,
+      timestamp: chats.timestamp,
+      isRead: chats.isRead,
+      senderName: users.fullName
+    })
       .from(chats)
+      .leftJoin(users, eq(chats.senderId, users.id))
       .where(eq(chats.orderId, orderId))
       .orderBy(chats.timestamp);
+    
+    return result.map(row => ({
+      ...row,
+      senderName: row.senderName || 'Unknown User'
+    }));
+  }
+
+  async addChatParticipant(participantData: InsertChatParticipant): Promise<ChatParticipant> {
+    const [participant] = await db.insert(chatParticipants).values(participantData).returning();
+    return participant;
+  }
+  async getChatParticipants(orderId: number): Promise<(ChatParticipant & { userName: string })[]> {
+    const result = await db.select({
+      id: chatParticipants.id,
+      orderId: chatParticipants.orderId,
+      userId: chatParticipants.userId,
+      role: chatParticipants.role,
+      joinedAt: chatParticipants.joinedAt,
+      lastReadAt: chatParticipants.lastReadAt,
+      userName: users.fullName
+    })
+      .from(chatParticipants)
+      .leftJoin(users, eq(chatParticipants.userId, users.id))
+      .where(eq(chatParticipants.orderId, orderId));
+    
+    return result.map(row => ({
+      ...row,
+      userName: row.userName || 'Unknown User'
+    }));
+  }
+  async initializeChatForOrder(orderId: number): Promise<void> {
+    // Get order details to determine participants
+    const order = await this.getOrderByOrderId(orderId.toString());
+    if (!order) return;
+
+    // Add customer as participant
+    if (order.userId) {
+      await db.insert(chatParticipants).values({
+        orderId,
+        userId: order.userId,
+        role: 'customer'
+      }).onConflictDoNothing();
+    }
+
+    // Add junior baker as participant if assigned
+    if (order.juniorBakerId) {
+      await db.insert(chatParticipants).values({
+        orderId,
+        userId: order.juniorBakerId,
+        role: 'junior_baker'
+      }).onConflictDoNothing();
+    }
+
+    // Add main baker as participant if assigned
+    if (order.mainBakerId) {
+      await db.insert(chatParticipants).values({
+        orderId,
+        userId: order.mainBakerId,
+        role: 'main_baker'
+      }).onConflictDoNothing();
+    }
   }
 
   async markChatsAsRead(chatIds: number[]): Promise<void> {

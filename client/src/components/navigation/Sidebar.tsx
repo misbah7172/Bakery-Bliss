@@ -22,8 +22,7 @@ interface SidebarProps {
 const Sidebar = ({ type }: SidebarProps) => {
   const [location] = useLocation();
   const { user, logout } = useAuth();
-  
-  const sidebarLinks = {
+    const sidebarLinks = {
     customer: [
       { label: "Dashboard", href: "/dashboard/customer", icon: LayoutDashboard },
       { label: "Order Status", href: "/dashboard/customer/orders", icon: ShoppingBag },
@@ -32,22 +31,38 @@ const Sidebar = ({ type }: SidebarProps) => {
       { label: "Account Settings", href: "/dashboard/customer/settings", icon: Settings },
     ],
     junior: [
-      { label: "Junior Baker Dashboard", href: "/dashboard/junior-baker", icon: LayoutDashboard },
-      { label: "Main Baker Dashboard", href: "/dashboard/main-baker", icon: ClipboardList },
-      { label: "Admin Dashboard", href: "/dashboard/admin", icon: User },
+      { label: "Dashboard", href: "/dashboard/junior-baker", icon: LayoutDashboard },
+      { label: "My Tasks", href: "/dashboard/junior-baker/tasks", icon: ClipboardList },
+      { label: "Chat", href: "/dashboard/junior-baker/chat", icon: MessageCircle },
+      { label: "Completed Orders", href: "/dashboard/junior-baker/completed", icon: ShoppingBag },
     ],
     main: [
-      { label: "Junior Baker Dashboard", href: "/dashboard/junior-baker", icon: User },
-      { label: "Main Baker Dashboard", href: "/dashboard/main-baker", icon: LayoutDashboard },
-      { label: "Admin Dashboard", href: "/dashboard/admin", icon: Sliders },
+      { label: "Dashboard", href: "/dashboard/main-baker", icon: LayoutDashboard },
+      { label: "Order Management", href: "/dashboard/main-baker/orders", icon: ClipboardList },
+      { label: "Baker Management", href: "/dashboard/main-baker/bakers", icon: User },
+      { label: "Quality Control", href: "/dashboard/main-baker/quality", icon: Sliders },
+      { label: "Chat", href: "/dashboard/main-baker/chat", icon: MessageCircle },
     ],
     admin: [
-      { label: "Junior Baker Dashboard", href: "/dashboard/junior-baker", icon: User },
-      { label: "Main Baker Dashboard", href: "/dashboard/main-baker", icon: ClipboardList },
       { label: "Admin Dashboard", href: "/dashboard/admin", icon: LayoutDashboard },
+      { label: "User Management", href: "/dashboard/admin/users", icon: User },
+      { label: "Baker Applications", href: "/dashboard/admin/applications", icon: ClipboardList },
+      { label: "System Settings", href: "/dashboard/admin/settings", icon: Sliders },
+      { label: "Reports", href: "/dashboard/admin/reports", icon: ShoppingBag },
     ],
   };
-  
+    const getRoleDisplayName = () => {
+    if (!user) return "";
+    
+    switch (user.role) {
+      case 'customer': return `Customer since ${user.customerSince || new Date().getFullYear()}`;
+      case 'junior_baker': return "Junior Baker";
+      case 'main_baker': return "Main Baker";
+      case 'admin': return "Administrator";
+      default: return user.role;
+    }
+  };
+
   const links = sidebarLinks[type];
   
   return (
@@ -60,15 +75,7 @@ const Sidebar = ({ type }: SidebarProps) => {
             </AvatarFallback>
           </Avatar>
           <h2 className="font-medium">{user.fullName}</h2>
-          <p className="text-xs text-foreground/70">{
-            type === "customer" 
-              ? `Customer since ${user.customerSince || new Date().getFullYear()}`
-              : type === "junior"
-                ? "Junior Baker"
-                : type === "main"
-                  ? "Main Baker"
-                  : "Administrator"
-          }</p>
+          <p className="text-xs text-foreground/70">{getRoleDisplayName()}</p>
         </div>
       )}
       

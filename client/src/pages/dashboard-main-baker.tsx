@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
@@ -10,7 +10,7 @@ import { Loader2, Utensils, ClipboardList, Clock, Award, Plus } from "lucide-rea
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import ChatComponent from "@/components/ui/chat";
+import ChatComponent from "@/components/ui/chat-simple";
 import {
   Select,
   SelectContent,
@@ -42,14 +42,42 @@ const MainBakerDashboard = () => {
   const [assigningOrderId, setAssigningOrderId] = useState<number | null>(null);
   const [selectedBakerId, setSelectedBakerId] = useState<string>("");
   
+  // Role-based access control
+  if (user && user.role !== 'main_baker') {
+    return (
+      <AppLayout>
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-red-600 mb-4">Access Denied</h1>
+            <p className="text-gray-600 mb-4">You don't have permission to access the Main Baker Dashboard.</p>
+            <Button onClick={() => navigate('/dashboard')}>Go to Your Dashboard</Button>
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
+  
   // Redirect if not authenticated or not a main baker
+  useEffect(() => {
+    if (!user) {
+      navigate("/login");
+      return;
+    }
+    
+    if (user.role !== "main_baker") {
+      navigate("/");
+      return;
+    }
+  }, [user, navigate]);
+
+  // Show loading while checking authentication
   if (!user) {
-    navigate("/login");
-    return null;
+    return <div className="min-h-screen flex items-center justify-center">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+    </div>;
   }
   
   if (user.role !== "main_baker") {
-    navigate("/");
     return null;
   }
   
@@ -327,12 +355,10 @@ const MainBakerDashboard = () => {
               </CardContent>
             </Card>
           </div>
-          
-          {/* Team Chat */}
+            {/* Team Chat */}
           <div className="lg:w-1/3">
             <ChatComponent 
               orderId={dashboardData?.ordersNeedingAssignment?.[0]?.id || 0}
-              receiverId={dashboardData?.ordersNeedingAssignment?.[0]?.assignedBakerId || 0}
             />
           </div>
         </div>

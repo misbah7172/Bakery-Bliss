@@ -15,10 +15,9 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  token: string | null;
   login: (email: string, password: string) => Promise<void>;
   register: (userData: RegisterData) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   loading: boolean;
   error: string | null;
 }
@@ -34,66 +33,47 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
   const [, navigate] = useLocation();
   
-  // Initialize auth state from localStorage
+  // Initialize auth state - check if user has valid session
   useEffect(() => {
-    const storedToken = localStorage.getItem("authToken");
-    console.log('Initializing auth state:', {
-      hasStoredToken: !!storedToken,
-      tokenValue: storedToken
-    });
+    console.log('Initializing auth state');
     
-    if (storedToken) {
-      setToken(storedToken);
-      
-      // Fetch user data
-      fetchCurrentUser(storedToken)
-        .then(userData => {
-          console.log('Fetched user data:', {
-            id: userData.id,
-            email: userData.email,
-            role: userData.role
-          });
-          setUser(userData);
-        })
-        .catch(err => {
-          console.error("Failed to fetch user data:", err);
-          localStorage.removeItem("authToken");
-          setToken(null);
-        })
-        .finally(() => {
-          setLoading(false);
+    // Try to fetch current user to check if session is valid
+    fetchCurrentUser()
+      .then(userData => {
+        console.log('Fetched user data:', {
+          id: userData.id,
+          email: userData.email,
+          role: userData.role
         });
-    } else {
-      setLoading(false);
-    }
+        setUser(userData);
+      })
+      .catch(err => {
+        console.error("No valid session found:", err);
+        setUser(null);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, []);
   
-  // Set up token getter
+  // Set up token getter (legacy compatibility - returns null for session-based auth)
   useEffect(() => {
     console.log('Setting up token getter');
     setTokenGetter(() => {
-      const storedToken = localStorage.getItem("authToken");
-      console.log('Token getter called, returning:', {
-        hasToken: !!storedToken,
-        tokenValue: storedToken
-      });
-      return storedToken;
+      console.log('Token getter called, using session-based auth');
+      return null;
     });
-  }, [token]);
+  }, []);
   
-  const fetchCurrentUser = async (authToken: string): Promise<User> => {
+  const fetchCurrentUser = async (): Promise<User> => {
     try {
       const res = await fetch("/api/users/me", {
-        headers: {
-          Authorization: `Bearer ${authToken}`
-        },
-        credentials: "include"
+        credentials: "include" // Include session cookies
       });
       
       if (!res.ok) {
@@ -105,23 +85,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       throw error;
     }
   };
-  
-  const login = async (email: string, password: string) => {
+    const login = async (email: string, password: string) => {
     try {
       setLoading(true);
       setError(null);
       
-      const res = await apiRequest("POST", "/api/auth/login", { email, password });
-      const data = await res.json();
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include", // Include session cookies
+        body: JSON.stringify({ email, password }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Login failed");
+      }
+      
+      const data = await response.json();
       console.log('Login successful:', {
         userId: data.user.id,
-        role: data.user.role,
-        hasToken: !!data.token
+        role: data.user.role
       });
       
       setUser(data.user);
-      setToken(data.token);
-      localStorage.setItem("authToken", data.token);
       
       toast({
         title: "Login successful",
@@ -158,18 +147,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setLoading(false);
     }
   };
-  
-  const register = async (userData: RegisterData) => {
+    const register = async (userData: RegisterData) => {
     try {
       setLoading(true);
       setError(null);
       
-      const res = await apiRequest("POST", "/api/auth/register", userData);
-      const data = await res.json();
+      const response = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include", // Include session cookies
+        body: JSON.stringify(userData),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Registration failed");
+      }
+      
+      const data = await response.json();
       
       setUser(data.user);
-      setToken(data.token);
-      localStorage.setItem("authToken", data.token);
       
       toast({
         title: "Registration successful",
@@ -190,11 +189,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setLoading(false);
     }
   };
-  
-  const logout = () => {
+    const logout = async () => {
+    try {
+      // Call logout endpoint to destroy session
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+    
     setUser(null);
-    setToken(null);
-    localStorage.removeItem("authToken");
     
     toast({
       title: "Logged out",
@@ -208,7 +214,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     <AuthContext.Provider
       value={{
         user,
-        token,
         login,
         register,
         logout,
