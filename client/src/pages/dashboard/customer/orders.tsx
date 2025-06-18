@@ -149,15 +149,15 @@ const CustomerOrdersPage = () => {
                         </div>
                       </div>
                     </CardHeader>
-                    <CardContent className="p-4 pt-2">
-                      <div className="mt-4 space-y-3">
-                        {order.items.map((item) => (
-                          <div key={item.id} className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              {item.imageUrl && (
-                                <img 
-                                  src={item.imageUrl} 
-                                  alt={item.name} 
+                    <CardContent className="p-4 pt-2">                      <div className="mt-4 space-y-3">
+                        {order.items && order.items.length > 0 ? (
+                          order.items.map((item) => (
+                            <div key={item.id} className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                {item.imageUrl && (
+                                  <img 
+                                    src={item.imageUrl} 
+                                    alt={item.name}
                                   className="w-12 h-12 object-cover rounded-md"
                                 />
                               )}
@@ -166,11 +166,13 @@ const CustomerOrdersPage = () => {
                                 <p className="text-sm text-muted-foreground">
                                   Quantity: {item.quantity}
                                 </p>
-                              </div>
-                            </div>
+                              </div>                            </div>
                             <p className="font-medium">{formatCurrency(item.price * item.quantity)}</p>
                           </div>
-                        ))}
+                        ))
+                        ) : (
+                          <p className="text-gray-500 text-center py-4">No items found for this order</p>
+                        )}
                         <div className="border-t pt-3 mt-3">
                           <div className="flex justify-between items-center">
                             <p className="font-medium">Total</p>

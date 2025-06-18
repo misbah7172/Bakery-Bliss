@@ -464,6 +464,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error('Error in order creation:', error);
       res.status(500).json({ message: "Internal server error" });
     }
+  });  // Get single order by ID
+  app.get("/api/orders/:id", authenticate, async (req, res) => {
+    try {
+      const orderId = parseInt(req.params.id);
+      
+      if (isNaN(orderId)) {
+        return res.status(400).json({ message: "Invalid order ID" });
+      }
+      
+      const order = await storage.getOrderWithDetails(orderId);
+      
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      
+      // Check if user has access to this order
+      if (req.user.role === 'customer' && order.userId !== req.user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      res.json(order);
+    } catch (error) {
+      console.error("Error fetching order:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
   });
 
   // Update order status
@@ -506,15 +531,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       res.json(order);
-    } catch (error) {
-      res.status(500).json({ message: "Internal server error" });
-    }  });
+    } catch (error) {      res.status(500).json({ message: "Internal server error" });
+    }
+  });
 
   // Get customer's orders
   app.get("/api/orders/customer", authenticate, async (req, res) => {
     try {
       const userId = req.user!.id;
-      const orders = await storage.getOrdersByUserId(userId);
+      const orders = await storage.getOrdersWithDetailsByUserId(userId);
       res.json(orders);
     } catch (error) {
       console.error("Error fetching customer orders:", error);

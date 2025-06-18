@@ -39,10 +39,12 @@ export interface IStorage {
   getAllCakeFlavors(): Promise<CakeFlavor[]>;
   getAllCakeFrostings(): Promise<CakeFrosting[]>;
   getAllCakeDecorations(): Promise<CakeDecoration[]>;
-  createCustomCake(cake: InsertCustomCake): Promise<CustomCake>;
-  
-  // Order methods
+  createCustomCake(cake: InsertCustomCake): Promise<CustomCake>;  // Order methods
   createOrder(order: InsertOrder): Promise<Order>;
+  getOrderById(id: number): Promise<Order | undefined>;
+  getOrderWithDetails(id: number): Promise<any>;
+  getOrdersByUserId(userId: number): Promise<Order[]>;
+  getOrdersWithDetailsByUserId(userId: number): Promise<any[]>;
   addOrderItem(item: InsertOrderItem): Promise<OrderItem>;
   getUserOrders(userId: number): Promise<Order[]>;
   getUserOrdersWithDetails(userId: number): Promise<any[]>;
@@ -169,8 +171,7 @@ export class DatabaseStorage implements IStorage {
 
   async createCustomCake(cakeData: InsertCustomCake): Promise<CustomCake> {
     const [cake] = await db.insert(customCakes).values(cakeData).returning();
-    return cake;
-  }
+    return cake;  }
   
   // Order methods
   async createOrder(orderData: InsertOrder): Promise<Order> {
@@ -181,6 +182,114 @@ export class DatabaseStorage implements IStorage {
       return order;
     } catch (error) {
       console.error('Error creating order:', error);
+      throw error;
+    }
+  }  async getOrderById(id: number): Promise<Order | undefined> {
+    try {
+      const [order] = await db.select()
+        .from(orders)
+        .where(eq(orders.id, id));
+      return order;
+    } catch (error) {
+      console.error('Error fetching order by ID:', error);
+      throw error;
+    }
+  }
+
+  async getOrderWithDetails(id: number): Promise<any> {
+    try {
+      // Get order
+      const order = await this.getOrderById(id);
+      if (!order) return null;
+
+      // Get order items
+      const items = await db.select()
+        .from(orderItems)
+        .leftJoin(products, eq(orderItems.productId, products.id))
+        .leftJoin(customCakes, eq(orderItems.customCakeId, customCakes.id))
+        .where(eq(orderItems.orderId, id));
+
+      // Get shipping info
+      const [shipping] = await db.select()
+        .from(shippingInfo)
+        .where(eq(shippingInfo.orderId, id));
+
+      return {
+        ...order,
+        items: items.map(item => ({
+          id: item.order_items.id,
+          productId: item.order_items.productId,
+          customCakeId: item.order_items.customCakeId,
+          quantity: item.order_items.quantity,
+          pricePerItem: item.order_items.pricePerItem,
+          product: item.products ? {
+            id: item.products.id,
+            name: item.products.name,
+            imageUrl: item.products.imageUrl
+          } : null,          customCake: item.custom_cakes ? {
+            id: item.custom_cakes.id,
+            name: item.custom_cakes.name || `Custom Cake`
+          } : null
+        })),
+        shippingInfo: shipping || null
+      };
+    } catch (error) {
+      console.error('Error fetching order with details:', error);
+      throw error;
+    }
+  }
+  async getOrdersByUserId(userId: number): Promise<Order[]> {
+    try {
+      return await db.select()
+        .from(orders)
+        .where(eq(orders.userId, userId))
+        .orderBy(desc(orders.createdAt));
+    } catch (error) {
+      console.error('Error fetching orders by user ID:', error);
+      throw error;
+    }
+  }
+
+  async getOrdersWithDetailsByUserId(userId: number): Promise<any[]> {
+    try {
+      const userOrders = await this.getOrdersByUserId(userId);
+      
+      const ordersWithDetails = await Promise.all(
+        userOrders.map(async (order) => {
+          // Get order items for each order
+          const items = await db.select()
+            .from(orderItems)
+            .leftJoin(products, eq(orderItems.productId, products.id))
+            .leftJoin(customCakes, eq(orderItems.customCakeId, customCakes.id))
+            .where(eq(orderItems.orderId, order.id));
+
+          return {
+            ...order,
+            items: items.map(item => ({
+              id: item.order_items.id,
+              productId: item.order_items.productId,
+              customCakeId: item.order_items.customCakeId,
+              quantity: item.order_items.quantity,
+              pricePerItem: item.order_items.pricePerItem,
+              price: item.order_items.pricePerItem, // Alias for compatibility
+              product: item.products ? {
+                id: item.products.id,
+                name: item.products.name,
+                imageUrl: item.products.imageUrl
+              } : null,              customCake: item.custom_cakes ? {
+                id: item.custom_cakes.id,
+                name: item.custom_cakes.name || `Custom Cake`
+              } : null,
+              name: item.products?.name || (item.custom_cakes ? (item.custom_cakes.name || 'Custom Cake') : 'Unknown Item'),
+              imageUrl: item.products?.imageUrl || null
+            }))
+          };
+        })
+      );
+
+      return ordersWithDetails;
+    } catch (error) {
+      console.error('Error fetching orders with details by user ID:', error);
       throw error;
     }
   }

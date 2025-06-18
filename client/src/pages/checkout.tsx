@@ -22,7 +22,7 @@ interface CheckoutFormData {
 
 export default function CheckoutPage() {
   const [, setLocation] = useLocation();
-  const { user, token } = useAuth();
+  const { user, loading } = useAuth();
   const { cartItems, cartTotal, clearCart } = useCart();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -35,10 +35,13 @@ export default function CheckoutPage() {
     state: "",
     zipCode: "",
     paymentMethod: "cash",
-  });
+  });  useEffect(() => {
+    // Don't redirect while auth is still loading
+    if (loading) {
+      return;
+    }
 
-  useEffect(() => {
-    if (!user || !token) {
+    if (!user) {
       setLocation("/login");
       return;
     }
@@ -47,7 +50,7 @@ export default function CheckoutPage() {
       setLocation("/products");
       return;
     }
-  }, [user, token, cartItems, setLocation]);
+  }, [user, loading, cartItems, setLocation]);
 
   const handleInputChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
@@ -58,21 +61,39 @@ export default function CheckoutPage() {
       [name]: value,
     }));
   };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
-
-    if (!token) {
+    console.log("Form submitted!");
+    console.log("Form data:", formData);
+    console.log("Cart items:", cartItems);
+    console.log("Cart total:", cartTotal);
+    
+    setIsSubmitting(true);    if (!user) {
       toast.error("Please log in to place an order");
       setLocation("/login");
       return;
     }
 
-    try {
-      // Show loading state to user
-      toast({
-        title: "Processing your order...",
+    // Validate required fields
+    const requiredFields = ['fullName', 'email', 'phone', 'address', 'city', 'state', 'zipCode'];
+    const missingFields = requiredFields.filter(field => !formData[field as keyof CheckoutFormData]?.trim());
+    
+    if (missingFields.length > 0) {
+      toast.error(`Please fill in all required fields: ${missingFields.join(', ')}`);
+      setIsSubmitting(false);
+      return;
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.email)) {
+      toast.error("Please enter a valid email address");
+      setIsSubmitting(false);
+      return;
+    }
+
+    try {      // Show loading state to user
+      toast.loading("Processing your order...", {
         description: "Please wait while we process your payment and submit your order.",
       });
       
@@ -99,10 +120,8 @@ export default function CheckoutPage() {
         items: orderItems,
         totalAmount: Number(cartTotal.toFixed(2)),
         shippingInfo: formData
-      }, null, 2));
-
-      // Make sure we're sending a proper totalAmount as a number
-      const response = await apiRequest("POST", "/api/orders", {
+      }, null, 2));      // Make sure we're sending a proper totalAmount as a number
+      const response = await apiRequest("/api/orders", "POST", {
         items: orderItems,
         totalAmount: Number(cartTotal.toFixed(2)), // Ensure it's a number
         status: "pending",
@@ -157,9 +176,20 @@ export default function CheckoutPage() {
     } finally {
       setIsSubmitting(false);
     }
-  };
+  };  if (loading) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+            <p>Loading checkout...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-  if (!user || !token || cartItems.length === 0) {
+  if (!user || cartItems.length === 0) {
     return null;
   }
 
