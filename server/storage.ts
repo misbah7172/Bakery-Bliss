@@ -16,7 +16,7 @@ import {
   reviews, type Review, type InsertReview
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, ne, desc, sql, like, or, gte } from "drizzle-orm";
+import { eq, and, ne, desc, sql, like, or, gte, notInArray } from "drizzle-orm";
 
 // Storage interface definition
 export interface IStorage {
@@ -611,16 +611,15 @@ export class DatabaseStorage implements IStorage {
   async createBakerTeam(teamData: InsertBakerTeam): Promise<BakerTeam> {
     const [team] = await db.insert(bakerTeams).values(teamData).returning();
     return team;
-  }
-  async getJuniorBakersByMainBaker(mainBakerId: number): Promise<User[]> {
+  }  async getJuniorBakersByMainBaker(mainBakerId: number): Promise<User[]> {
     const result = await db.select()
-    .from(bakerTeams)
-    .innerJoin(users, eq(bakerTeams.juniorBakerId, users.id))
-    .where(and(
-      eq(bakerTeams.mainBakerId, mainBakerId),
-      eq(bakerTeams.isActive, true),
-      eq(users.role, 'junior_baker')
-    ));
+      .from(bakerTeams)
+      .innerJoin(users, eq(bakerTeams.juniorBakerId, users.id))
+      .where(and(
+        eq(bakerTeams.mainBakerId, mainBakerId),
+        eq(bakerTeams.isActive, true),
+        eq(users.role, 'junior_baker')
+      ));
     
     return result.map(r => r.users);
   }
@@ -1075,6 +1074,45 @@ export class DatabaseStorage implements IStorage {
     );
 
     return !existingReview;
+  }
+  // Assign a junior baker to a main baker using baker_teams table
+  async assignJuniorBakerToMainBaker(juniorBakerId: number, mainBakerId: number): Promise<void> {
+    // First, deactivate any existing assignments for this junior baker
+    await db.update(bakerTeams)
+      .set({ isActive: false })
+      .where(eq(bakerTeams.juniorBakerId, juniorBakerId));
+    
+    // Create new active assignment
+    await db.insert(bakerTeams).values({
+      mainBakerId,
+      juniorBakerId,
+      isActive: true
+    });
+  }
+
+  // Get unassigned junior bakers
+  async getUnassignedJuniorBakers(): Promise<User[]> {
+    // Get all junior bakers who are not in an active baker team
+    const assignedJuniorBakerIds = await db.select({ id: bakerTeams.juniorBakerId })
+      .from(bakerTeams)
+      .where(eq(bakerTeams.isActive, true));
+    
+    const assignedIds = assignedJuniorBakerIds.map(item => item.id);
+    
+    if (assignedIds.length === 0) {
+      // No one is assigned, return all junior bakers
+      return await db.select()
+        .from(users)
+        .where(eq(users.role, 'junior_baker'));
+    }
+    
+    // Return junior bakers not in the assigned list
+    return await db.select()
+      .from(users)
+      .where(and(
+        eq(users.role, 'junior_baker'),
+        notInArray(users.id, assignedIds)
+      ));
   }
 }
 

@@ -45,6 +45,10 @@ const MainBakerBakers = lazy(() => import("@/pages/dashboard/main-baker/bakers")
 const MainBakerQuality = lazy(() => import("@/pages/dashboard/main-baker/quality"));
 const MainBakerChat = lazy(() => import("@/pages/dashboard/main-baker/chat"));
 
+// Admin Dashboard Pages
+const AdminUsers = lazy(() => import("@/pages/admin-users"));
+const AdminApplications = lazy(() => import("@/pages/admin-applications"));
+
 // Loading component
 const PageLoader = () => (
   <div className="min-h-screen w-full flex items-center justify-center bg-background">
@@ -79,6 +83,8 @@ function App() {
         <Route path="/dashboard/junior-baker" component={DashboardJuniorBaker} />
         <Route path="/dashboard/main-baker" component={DashboardMainBaker} />
         <Route path="/dashboard/admin" component={DashboardAdmin} />
+        <Route path="/dashboard/admin/users" component={AdminUsers} />
+        <Route path="/dashboard/admin/applications" component={AdminApplications} />
         
         {/* Customer dashboard pages */}
         <Route path="/dashboard/customer/orders" component={CustomerOrders} />
@@ -98,6 +104,9 @@ function App() {
         <Route path="/dashboard/main-baker/bakers" component={MainBakerBakers} />
         <Route path="/dashboard/main-baker/quality" component={MainBakerQuality} />
         <Route path="/dashboard/main-baker/chat" component={MainBakerChat} />
+          {/* Admin dashboard pages */}
+        <Route path="/admin/users" component={AdminUsers} />
+        <Route path="/admin/applications" component={AdminApplications} />
         
         {/* 404 page */}
         <Route component={NotFound} />

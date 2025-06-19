@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import AppLayout from "@/components/layouts/AppLayout";
 import { 
   Users, 
   Package, 
@@ -188,15 +189,15 @@ export default function AdminDashboard() {
       </div>
     );
   }
-
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-8">
-        <div>
-          <h1 className="text-3xl font-bold">Admin Dashboard</h1>
-          <p className="text-muted-foreground">Manage your Bakery Bliss business</p>
+    <AppLayout showSidebar sidebarType="admin">
+      <div className="container mx-auto px-4 py-8">
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+            <p className="text-muted-foreground">Manage your Bakery Bliss business</p>
+          </div>
         </div>
-      </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="grid w-full grid-cols-5">
@@ -550,13 +551,13 @@ export default function AdminDashboard() {
                         </Button>
                       </div>
                     </div>
-                  )) || <p>No pending applications</p>}
-                </div>
+                  )) || <p>No pending applications</p>}                </div>
               )}
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
     </div>
+    </AppLayout>
   );
 }

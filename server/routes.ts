@@ -874,13 +874,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Internal server error" });
     }
   });
-
   // Get main baker dashboard stats
   app.get("/api/dashboard/main-baker", authenticate, authorize(['main_baker']), async (req, res) => {
     try {
       const stats = await storage.getMainBakerStats();
       res.json(stats);
     } catch (error) {      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get main baker's team (junior bakers assigned to them)
+  app.get("/api/main-baker/team", authenticate, authorize(['main_baker']), async (req, res) => {
+    try {
+      const mainBakerId = req.user.id;
+      
+      // Get junior bakers assigned to this main baker
+      const teamMembers = await storage.getJuniorBakersByMainBaker(mainBakerId);
+      
+      // For now, return basic team info (we can add order counts later)
+      res.json(teamMembers);
+    } catch (error) {
+      console.error("Error fetching team:", error);
+      res.status(500).json({ message: "Internal server error" });
     }
   });
 
@@ -1054,22 +1069,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting product:", error);
       res.status(500).json({ message: "Internal server error" });
-    }
-  });
+    }  });
 
   // Approve baker application (admin only)
   app.patch("/api/admin/baker-applications/:applicationId/approve", authenticate, authorize(["admin"]), async (req, res) => {
     try {
       const { applicationId } = req.params;
       
-      const application = await storage.updateBakerApplicationStatus(
+      // Get the application details first
+      const application = await storage.getBakerApplicationById(parseInt(applicationId));
+      if (!application) {
+        return res.status(404).json({ message: "Application not found" });
+      }
+      
+      // Update application status
+      await storage.updateBakerApplicationStatus(
         parseInt(applicationId), 
         "approved", 
         req.user.id
       );
       
-      if (application?.applicantId) {
-        await storage.updateUserRole(application.applicantId, "junior_baker");
+      // Update user role to junior_baker and assign main baker
+      if (application.userId) {
+        await storage.updateUserRole(application.userId, "junior_baker");
+        
+        // Assign the main baker to the new junior baker
+        if (application.mainBakerId) {
+          await storage.assignJuniorBakerToMainBaker(application.userId, application.mainBakerId);
+        }
       }
 
       res.json({ message: "Application approved successfully" });
@@ -1123,6 +1150,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(order);
     } catch (error) {
       console.error('Error tracking order:', error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get all main bakers for application selection
+  app.get("/api/main-bakers", async (req, res) => {
+    try {
+      const mainBakers = await storage.getUsersWithRole('main_baker');
+      
+      // Get team size for each main baker (count of junior bakers assigned to them)
+      const bakersWithTeamSize = await Promise.all(
+        mainBakers.map(async (baker) => {
+          const teamMembers = await storage.getJuniorBakersByMainBaker(baker.id);
+          return {
+            id: baker.id,
+            fullName: baker.fullName,
+            email: baker.email,
+            completedOrders: baker.completedOrders || 0,
+            profileImage: baker.profileImage,
+            teamSize: teamMembers.length
+          };
+        })
+      );
+      
+      res.json(bakersWithTeamSize);
+    } catch (error) {
+      console.error("Error fetching main bakers:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get main baker's team (junior bakers assigned to them)
+  app.get("/api/main-baker/team", authenticate, authorize(['main_baker']), async (req, res) => {
+    try {
+      const mainBakerId = req.user.id;
+      
+      // Get junior bakers assigned to this main baker
+      const teamMembers = await storage.getJuniorBakersByMainBaker(mainBakerId);
+      
+      // Get current order counts for each team member
+      const teamWithStats = await Promise.all(
+        teamMembers.map(async (member) => {
+          const currentOrders = await storage.getCurrentOrdersCountForBaker(member.id);
+          return {
+            ...member,
+            currentOrders
+          };
+        })
+      );
+      
+      res.json(teamWithStats);
+    } catch (error) {
+      console.error("Error fetching team:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });

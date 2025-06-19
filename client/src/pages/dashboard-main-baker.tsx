@@ -107,6 +107,11 @@ export default function MainBakerDashboard() {
     queryKey: [`/api/users/main-baker/${user?.id}/junior-bakers`],
     enabled: !!user
   });
+  // Fetch team members (junior bakers assigned to this main baker)
+  const { data: team, isLoading: teamLoading } = useQuery({
+    queryKey: [`/api/main-baker/team`],
+    enabled: !!user && user.role === 'main_baker'
+  });
 
   // Fetch pending applications
   const { data: applications } = useQuery<BakerApplication[]>({
@@ -484,6 +489,58 @@ export default function MainBakerDashboard() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Team Management Section */}
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Users className="h-5 w-5 mr-2" />
+              My Team
+            </CardTitle>
+            <CardDescription>
+              Junior bakers assigned to your team
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {juniorBakers && juniorBakers.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {juniorBakers.map((member) => (
+                  <div key={member.id} className="border rounded-lg p-4">
+                    <div className="flex items-center gap-3 mb-3">
+                      <Avatar className="h-10 w-10">
+                        <AvatarImage src={member.profileImage} />
+                        <AvatarFallback className="bg-primary/10 text-primary">
+                          {member.fullName.split(' ').map(n => n[0]).join('')}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <h3 className="font-medium">{member.fullName}</h3>
+                        <p className="text-sm text-gray-600">{member.email}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Completed Orders:</span>
+                        <span className="font-medium">{member.completedOrders || 0}</span>                      </div>
+                      <Badge className="bg-blue-100 text-blue-800">
+                        <ChefHat className="h-3 w-3 mr-1" />
+                        Junior Baker
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-600 mb-2">No junior bakers assigned yet</p>
+                <p className="text-sm text-gray-500">
+                  Junior bakers will appear here when they are assigned to your team
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </AppLayout>
   );

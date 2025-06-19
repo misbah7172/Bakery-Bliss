@@ -18,6 +18,7 @@ export const users = pgTable("users", {
   role: roleEnum("role").notNull().default('customer'),
   profileImage: text("profile_image"),
   completedOrders: integer("completed_orders").default(0), // Track completed orders for junior bakers
+  mainBakerId: integer("main_baker_id"), // Junior bakers are assigned to a main baker
   createdAt: timestamp("created_at").defaultNow(),
   customerSince: integer("customer_since").default(2025),
 });
