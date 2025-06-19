@@ -1,370 +1,490 @@
-import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { useLocation, Link } from "wouter";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import AppLayout from "@/components/layouts/AppLayout";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Utensils, ClipboardList, Clock, Award, Plus } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
-import { queryClient } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
-import ChatComponent from "@/components/ui/chat-simple";
-import {
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { 
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogDescription, 
+  DialogFooter, 
+  DialogHeader, 
+  DialogTitle 
+} from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
+import { 
+  Loader2, 
+  Users, 
+  Package, 
+  Clock, 
+  CheckCircle, 
+  XCircle, 
+  UserPlus,
+  ChefHat,
+  Calendar,
+  DollarSign
+} from "lucide-react";
+import { formatCurrency } from "@/lib/utils";
+import { format } from "date-fns";
+import { toast } from "sonner";
 
-interface OrderStatus {
-  [key: string]: {
-    label: string;
-    color: string;
-  };
+interface Order {
+  id: number;
+  orderId: string;
+  status: string;
+  totalAmount: number;
+  createdAt: string;
+  deadline: string;
+  userId: number;
+  mainBakerId: number | null;
+  juniorBakerId: number | null;
+  items?: any[];
+  customerName?: string;
 }
 
-const orderStatusMap: OrderStatus = {
-  pending: { label: "Pending", color: "bg-yellow-100 text-yellow-800" },
-  processing: { label: "Processing", color: "bg-blue-100 text-blue-800" },
-  quality_check: { label: "Quality Check", color: "bg-purple-100 text-purple-800" },
-  ready: { label: "Ready", color: "bg-green-100 text-green-800" },
-  delivered: { label: "Delivered", color: "bg-green-100 text-green-800" },
-  cancelled: { label: "Cancelled", color: "bg-red-100 text-red-800" }
-};
+interface JuniorBaker {
+  id: number;
+  fullName: string;
+  email: string;
+  profileImage?: string;
+  completedOrders: number;
+}
 
-const MainBakerDashboard = () => {
+interface BakerApplication {
+  id: number;
+  userId: number;
+  currentRole: string;
+  requestedRole: string;
+  reason: string;
+  status: string;
+  createdAt: string;
+  applicantName?: string;
+  applicantEmail?: string;
+}
+
+interface DashboardStats {
+  totalOrders: number;
+  pendingOrders: number;
+  processingOrders: number;
+  completedOrders: number;
+  juniorBakers: number;
+  pendingApplications: number;
+  revenue: number;
+}
+
+export default function MainBakerDashboard() {
   const { user } = useAuth();
-  const [, navigate] = useLocation();
-  const { toast } = useToast();
-  const [assigningOrderId, setAssigningOrderId] = useState<number | null>(null);
-  const [selectedBakerId, setSelectedBakerId] = useState<string>("");
+  const queryClient = useQueryClient();
   
-  // Role-based access control
-  if (user && user.role !== 'main_baker') {
-    return (
-      <AppLayout>
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <h1 className="text-2xl font-bold text-red-600 mb-4">Access Denied</h1>
-            <p className="text-gray-600 mb-4">You don't have permission to access the Main Baker Dashboard.</p>
-            <Button onClick={() => navigate('/dashboard')}>Go to Your Dashboard</Button>
-          </div>
-        </div>
-      </AppLayout>
-    );
-  }
-  
-  // Redirect if not authenticated or not a main baker
-  useEffect(() => {
-    if (!user) {
-      navigate("/login");
-      return;
-    }
-    
-    if (user.role !== "main_baker") {
-      navigate("/");
-      return;
-    }
-  }, [user, navigate]);
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [selectedJuniorBaker, setSelectedJuniorBaker] = useState("");
+  const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
 
-  // Show loading while checking authentication
-  if (!user) {
-    return <div className="min-h-screen flex items-center justify-center">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-    </div>;
-  }
-  
-  if (user.role !== "main_baker") {
-    return null;
-  }
-  
-  // Fetch main baker's dashboard data
-  const { data: dashboardData, isLoading } = useQuery({
-    queryKey: ['/api/dashboard/main-baker'],
-    enabled: !!user && user.role === "main_baker",
+  // Fetch dashboard stats
+  const { data: stats } = useQuery<DashboardStats>({
+    queryKey: ["/api/dashboard/main-baker"],
+    enabled: !!user
   });
-  
-  // Fetch junior bakers for assignment
-  const { data: juniorBakers = [] } = useQuery({
-    queryKey: ['/api/users/junior-bakers'],
-    enabled: !!user && user.role === "main_baker",
+
+  // Fetch orders for main baker
+  const { data: orders, isLoading: ordersLoading } = useQuery<Order[]>({
+    queryKey: ["/api/orders"],
+    enabled: !!user
   });
-  
-  // Assign order to junior baker
-  const handleAssignOrder = async (orderId: number) => {
-    if (!selectedBakerId) {
-      toast({
-        title: "Error",
-        description: "Please select a baker to assign the order to",
-        variant: "destructive",
+
+  // Fetch junior bakers in the team
+  const { data: juniorBakers } = useQuery<JuniorBaker[]>({
+    queryKey: [`/api/users/main-baker/${user?.id}/junior-bakers`],
+    enabled: !!user
+  });
+
+  // Fetch pending applications
+  const { data: applications } = useQuery<BakerApplication[]>({
+    queryKey: ["/api/baker-applications/pending"],
+    enabled: !!user
+  });
+
+  // Assign order to junior baker mutation
+  const assignOrderMutation = useMutation({
+    mutationFn: async ({ orderId, juniorBakerId }: { orderId: number; juniorBakerId: number }) => {
+      const response = await fetch(`/api/orders/${orderId}/assign`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ juniorBakerId })
       });
+      
+      if (!response.ok) {
+        throw new Error("Failed to assign order");
+      }
+      
+      return response.json();
+    },
+    onSuccess: () => {
+      toast.success("Order assigned successfully!");
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      setIsAssignDialogOpen(false);
+      setSelectedOrder(null);
+      setSelectedJuniorBaker("");
+    },
+    onError: () => {
+      toast.error("Failed to assign order");
+    }
+  });
+
+  // Handle application response mutation
+  const handleApplicationMutation = useMutation({
+    mutationFn: async ({ applicationId, status }: { applicationId: number; status: string }) => {
+      const response = await fetch(`/api/baker-applications/${applicationId}/main-baker`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ status })
+      });
+      
+      if (!response.ok) {
+        throw new Error("Failed to update application");
+      }
+      
+      return response.json();
+    },
+    onSuccess: (_, { status }) => {
+      toast.success(`Application ${status === 'accepted' ? 'accepted' : 'rejected'}!`);
+      queryClient.invalidateQueries({ queryKey: ["/api/baker-applications/pending"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/users/main-baker/${user?.id}/junior-bakers`] });
+    },
+    onError: () => {
+      toast.error("Failed to update application");
+    }
+  });
+
+  const handleAssignOrder = (order: Order) => {
+    setSelectedOrder(order);
+    setIsAssignDialogOpen(true);
+  };
+
+  const handleConfirmAssignment = () => {
+    if (!selectedOrder || !selectedJuniorBaker) {
+      toast.error("Please select a junior baker");
       return;
     }
-    
-    try {
-      setAssigningOrderId(orderId);
-      await apiRequest("PATCH", `/api/orders/${orderId}/assign`, { 
-        bakerId: parseInt(selectedBakerId)
-      });
-      
-      // Invalidate and refetch data
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/main-baker'] });
-      
-      toast({
-        title: "Order Assigned",
-        description: "Order has been assigned to the selected baker",
-      });
-      
-      setSelectedBakerId("");
-    } catch (error) {
-      console.error("Error assigning order:", error);
-      toast({
-        title: "Error",
-        description: "Failed to assign order",
-        variant: "destructive",
-      });
-    } finally {
-      setAssigningOrderId(null);
+
+    assignOrderMutation.mutate({
+      orderId: selectedOrder.id,
+      juniorBakerId: parseInt(selectedJuniorBaker)
+    });
+  };
+
+  const handleApplication = (applicationId: number, status: string) => {
+    handleApplicationMutation.mutate({ applicationId, status });
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case 'pending': return 'bg-yellow-100 text-yellow-800';
+      case 'processing': return 'bg-blue-100 text-blue-800';
+      case 'quality_check': return 'bg-purple-100 text-purple-800';
+      case 'ready': return 'bg-green-100 text-green-800';
+      case 'delivered': return 'bg-gray-100 text-gray-800';
+      case 'cancelled': return 'bg-red-100 text-red-800';
+      default: return 'bg-gray-100 text-gray-800';
     }
   };
-  
-  // Mark order as quality checked
-  const handleQualityCheck = async (orderId: number) => {
-    try {
-      await apiRequest("PATCH", `/api/orders/${orderId}/status`, { status: "ready" });
-      
-      // Invalidate and refetch data
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/main-baker'] });
-      
-      toast({
-        title: "Quality Check Complete",
-        description: "Order is now marked as ready for pickup/delivery",
-      });
-    } catch (error) {
-      console.error("Error updating order status:", error);
-      toast({
-        title: "Error",
-        description: "Failed to update order status",
-        variant: "destructive",
-      });
-    }
-  };
-  
-  if (isLoading) {
-    return (
-      <AppLayout showSidebar={true} sidebarType="main">
-        <div className="flex justify-center items-center h-64">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      </AppLayout>
-    );
-  }
-  
+
   return (
-    <AppLayout showSidebar={true} sidebarType="main">
-      <div>
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h1 className="text-3xl font-poppins font-semibold text-foreground mb-2">
-          Main Baker Dashboard
-        </h1>
-            <p className="text-foreground/70">
-          Overview of orders, performance, and team chat.
-        </p>
-          </div>
-          <Button 
-            onClick={() => navigate("/dashboard/main-baker/add-product")}
-            className="flex items-center gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            Add New Product
-          </Button>
+    <AppLayout showSidebar sidebarType="main">
+      <div className="container mx-auto px-4 py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold mb-2">Main Baker Dashboard</h1>
+          <p className="text-gray-600">Manage your team and assign orders to junior bakers</p>
         </div>
-        
+
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <Card>
             <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-poppins text-foreground/70">Incoming Orders</h3>
-                <Utensils className="h-5 w-5 text-primary opacity-70" />
+              <div className="flex items-center">
+                <Package className="h-8 w-8 text-blue-600" />
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Total Orders</p>
+                  <p className="text-2xl font-bold">{stats?.totalOrders || 0}</p>
+                </div>
               </div>
-              <p className="text-4xl font-poppins font-semibold text-foreground mb-2">
-                {dashboardData?.incomingOrders || 0}
-              </p>
-              <p className="text-xs text-foreground/70">New orders in the queue.</p>
             </CardContent>
           </Card>
-          
+
           <Card>
             <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-poppins text-foreground/70">Pending Tasks</h3>
-                <ClipboardList className="h-5 w-5 text-primary opacity-70" />
+              <div className="flex items-center">
+                <Clock className="h-8 w-8 text-yellow-600" />
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Pending Orders</p>
+                  <p className="text-2xl font-bold">{stats?.pendingOrders || 0}</p>
+                </div>
               </div>
-              <p className="text-4xl font-poppins font-semibold text-foreground mb-2">
-                {dashboardData?.pendingTasks || 0}
-              </p>
-              <p className="text-xs text-foreground/70">Tasks assigned to Junior Bakers.</p>
             </CardContent>
           </Card>
-          
+
           <Card>
             <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-poppins text-foreground/70">Avg Task Time</h3>
-                <Clock className="h-5 w-5 text-primary opacity-70" />
+              <div className="flex items-center">
+                <Users className="h-8 w-8 text-green-600" />
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Junior Bakers</p>
+                  <p className="text-2xl font-bold">{stats?.juniorBakers || 0}</p>
+                </div>
               </div>
-              <p className="text-4xl font-poppins font-semibold text-foreground mb-2">
-                {dashboardData?.avgTaskTime || 0} mins
-              </p>
-              <p className="text-xs text-foreground/70">Average completion time for tasks.</p>
             </CardContent>
           </Card>
-          
+
           <Card>
             <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-poppins text-foreground/70">Team Performance</h3>
-                <Award className="h-5 w-5 text-primary opacity-70" />
-              </div>
-              <p className="text-4xl font-poppins font-semibold text-foreground mb-2">
-                {dashboardData?.teamPerformance || 0}%
-              </p>
-              <div className="w-full bg-accent/30 rounded-full h-2 mb-2">
-                <div 
-                  className="bg-primary h-2 rounded-full" 
-                  style={{ width: `${dashboardData?.teamPerformance || 0}%` }}
-                />
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-foreground/70">Target 95%</span>
-                <span className="text-foreground/70">Average task completion rate.</span>
+              <div className="flex items-center">
+                <DollarSign className="h-8 w-8 text-purple-600" />
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Revenue</p>
+                  <p className="text-2xl font-bold">{formatCurrency(stats?.revenue || 0)}</p>
+                </div>
               </div>
             </CardContent>
           </Card>
         </div>
-        
-        <div className="flex flex-col lg:flex-row gap-8">
-          {/* Incoming Orders */}
-          <div className="lg:w-2/3">
-            <Card className="mb-6">
-              <CardContent className="p-6">
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-xl font-poppins font-semibold text-foreground">Incoming Orders</h2>
-                  <p className="text-sm text-foreground/70">List of orders pending assignment or start.</p>
-                </div>
-                
-                {dashboardData?.ordersNeedingAssignment?.length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full">
-                      <thead>
-                        <tr className="border-b border-accent">
-                          <th className="text-left py-3 font-poppins text-sm font-medium text-foreground/70">Order ID</th>
-                          <th className="text-left py-3 font-poppins text-sm font-medium text-foreground/70">Customer</th>
-                          <th className="text-left py-3 font-poppins text-sm font-medium text-foreground/70">Items</th>
-                          <th className="text-left py-3 font-poppins text-sm font-medium text-foreground/70">Deadline</th>
-                          <th className="text-left py-3 font-poppins text-sm font-medium text-foreground/70">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {dashboardData.ordersNeedingAssignment.map((order: any) => (
-                          <tr key={order.id} className="border-b border-accent">
-                            <td className="py-4 text-sm font-medium text-foreground">{order.orderId}</td>
-                            <td className="py-4 text-sm text-foreground">
-                              {/* This would normally be populated with actual customer data */}
-                              Customer Name
-                            </td>
-                            <td className="py-4 text-sm text-foreground">
-                              {/* This would normally be populated with actual order items */}
-                              Order items
-                            </td>
-                            <td className="py-4 text-sm text-foreground">
-                              {order.deadline 
-                                ? new Date(order.deadline).toLocaleString()
-                                : 'Not specified'}
-                            </td>
-                            <td className="py-4">
-                              <div className="flex flex-col gap-2">
-                                {order.status === "pending" && (
-                                  <>
-                                    <Select
-                                      value={selectedBakerId}
-                                      onValueChange={setSelectedBakerId}
-                                    >
-                                      <SelectTrigger className="w-full">
-                                        <SelectValue placeholder="Select Baker" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {juniorBakers.length > 0 ? (
-                                          juniorBakers.map((baker: any) => (
-                                            <SelectItem key={baker.id} value={baker.id.toString()}>
-                                              {baker.fullName}
-                                            </SelectItem>
-                                          ))
-                                        ) : (
-                                          <SelectItem value="none" disabled>
-                                            No bakers available
-                                          </SelectItem>
-                                        )}
-                                      </SelectContent>
-                                    </Select>
-                                    
-                                    <Button 
-                                      size="sm"
-                                      className="bg-primary hover:bg-primary/90"
-                                      onClick={() => handleAssignOrder(order.id)}
-                                      disabled={!selectedBakerId || assigningOrderId === order.id}
-                                    >
-                                      {assigningOrderId === order.id ? (
-                                        <>
-                                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                          Assigning...
-                                        </>
-                                      ) : (
-                                        "Assign Baker"
-                                      )}
-                                    </Button>
-                                  </>
-                                )}
-                                
-                                {order.status === "quality_check" && (
-                                  <Button 
-                                    size="sm"
-                                    className="bg-green-600 hover:bg-green-700 text-white"
-                                    onClick={() => handleQualityCheck(order.id)}
-                                  >
-                                    Approve Quality
-                                  </Button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Orders Management */}
+          <div className="lg:col-span-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Package className="h-5 w-5 mr-2" />
+                  Orders Management
+                </CardTitle>
+                <CardDescription>
+                  Assign new orders to your junior bakers
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {ordersLoading ? (
+                  <div className="flex items-center justify-center h-32">
+                    <Loader2 className="h-8 w-8 animate-spin" />
                   </div>
                 ) : (
-                  <div className="text-center py-6">
-                    <p className="text-foreground/70">No orders currently needing assignment.</p>
+                  <div className="space-y-4">
+                    {orders?.filter(order => order.status === 'pending' || !order.juniorBakerId).map((order) => (
+                      <div key={order.id} className="border rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-3">
+                            <Badge className={getStatusColor(order.status)}>
+                              {order.status}
+                            </Badge>
+                            <span className="font-medium">Order {order.orderId}</span>
+                          </div>
+                          <span className="font-bold">{formatCurrency(order.totalAmount)}</span>
+                        </div>
+                        
+                        <div className="text-sm text-gray-600 mb-3">
+                          <p>Customer: {order.customerName || 'N/A'}</p>
+                          <p>Deadline: {format(new Date(order.deadline), 'PPp')}</p>
+                          <p>Items: {order.items?.length || 0} items</p>
+                        </div>
+
+                        {!order.juniorBakerId ? (
+                          <Button 
+                            size="sm" 
+                            onClick={() => handleAssignOrder(order)}
+                            disabled={!juniorBakers?.length}
+                          >
+                            <UserPlus className="h-4 w-4 mr-2" />
+                            Assign to Junior Baker
+                          </Button>
+                        ) : (
+                          <Badge variant="outline">
+                            Assigned to Junior Baker
+                          </Badge>
+                        )}
+                      </div>
+                    ))}
+                    
+                    {orders?.filter(order => order.status === 'pending' || !order.juniorBakerId).length === 0 && (
+                      <div className="text-center py-8 text-gray-500">
+                        No pending orders to assign
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>
             </Card>
           </div>
-            {/* Team Chat */}
-          <div className="lg:w-1/3">
-            <ChatComponent 
-              orderId={dashboardData?.ordersNeedingAssignment?.[0]?.id || 0}
-            />
+
+          {/* Team & Applications */}
+          <div className="space-y-6">
+            {/* Junior Baker Applications */}
+            {applications && applications.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <UserPlus className="h-5 w-5 mr-2" />
+                    New Applications
+                  </CardTitle>
+                  <CardDescription>
+                    Review junior baker applications
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {applications.map((application) => (
+                      <div key={application.id} className="border rounded-lg p-4">
+                        <div className="mb-3">
+                          <p className="font-medium">{application.applicantName}</p>
+                          <p className="text-sm text-gray-600">{application.applicantEmail}</p>
+                        </div>
+                        
+                        <p className="text-sm mb-3">{application.reason}</p>
+                        
+                        <div className="flex gap-2">
+                          <Button 
+                            size="sm" 
+                            onClick={() => handleApplication(application.id, 'accepted')}
+                            disabled={handleApplicationMutation.isPending}
+                          >
+                            <CheckCircle className="h-4 w-4 mr-1" />
+                            Accept
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => handleApplication(application.id, 'rejected')}
+                            disabled={handleApplicationMutation.isPending}
+                          >
+                            <XCircle className="h-4 w-4 mr-1" />
+                            Reject
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Junior Bakers Team */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <ChefHat className="h-5 w-5 mr-2" />
+                  Your Team
+                </CardTitle>
+                <CardDescription>
+                  Junior bakers working with you
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {juniorBakers && juniorBakers.length > 0 ? (
+                  <div className="space-y-3">
+                    {juniorBakers.map((baker) => (
+                      <div key={baker.id} className="flex items-center gap-3 p-3 border rounded-lg">
+                        <Avatar>
+                          <AvatarImage src={baker.profileImage} />
+                          <AvatarFallback>
+                            {baker.fullName.split(' ').map(n => n[0]).join('')}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1">
+                          <p className="font-medium">{baker.fullName}</p>
+                          <p className="text-sm text-gray-600">
+                            {baker.completedOrders} orders completed
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-6 text-gray-500">
+                    <Users className="h-12 w-12 mx-auto mb-2 text-gray-300" />
+                    <p>No junior bakers yet</p>
+                    <p className="text-sm">Applications will appear above</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </div>
+
+        {/* Assignment Dialog */}
+        <Dialog open={isAssignDialogOpen} onOpenChange={setIsAssignDialogOpen}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Assign Order to Junior Baker</DialogTitle>
+              <DialogDescription>
+                Select a junior baker to handle order {selectedOrder?.orderId}
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="grid gap-4 py-4">
+              <div className="space-y-2">
+                <Select value={selectedJuniorBaker} onValueChange={setSelectedJuniorBaker}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a junior baker" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {juniorBakers?.map((baker) => (
+                      <SelectItem key={baker.id} value={baker.id.toString()}>
+                        <div className="flex items-center gap-2">
+                          <span>{baker.fullName}</span>
+                          <span className="text-sm text-gray-500">
+                            ({baker.completedOrders} completed)
+                          </span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              {selectedOrder && (
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="font-medium">Order Details:</p>
+                  <p className="text-sm text-gray-600">
+                    Order {selectedOrder.orderId} - {formatCurrency(selectedOrder.totalAmount)}
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    Deadline: {format(new Date(selectedOrder.deadline), 'PPp')}
+                  </p>
+                </div>
+              )}
+            </div>
+            
+            <DialogFooter>
+              <Button 
+                variant="outline" 
+                onClick={() => setIsAssignDialogOpen(false)}
+                disabled={assignOrderMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleConfirmAssignment}
+                disabled={assignOrderMutation.isPending || !selectedJuniorBaker}
+              >
+                {assignOrderMutation.isPending && (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                )}
+                Assign Order
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppLayout>
   );
-};
-
-export default MainBakerDashboard;
+}

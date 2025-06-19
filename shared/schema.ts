@@ -17,6 +17,7 @@ export const users = pgTable("users", {
   fullName: text("full_name").notNull(),
   role: roleEnum("role").notNull().default('customer'),
   profileImage: text("profile_image"),
+  completedOrders: integer("completed_orders").default(0), // Track completed orders for junior bakers
   createdAt: timestamp("created_at").defaultNow(),
   customerSince: integer("customer_since").default(2025),
 });
@@ -160,6 +161,15 @@ export const bakerApplications = pgTable("baker_applications", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Main Baker - Junior Baker relationship table
+export const bakerTeams = pgTable("baker_teams", {
+  id: serial("id").primaryKey(),
+  mainBakerId: integer("main_baker_id").notNull().references(() => users.id),
+  juniorBakerId: integer("junior_baker_id").notNull().references(() => users.id),
+  assignedAt: timestamp("assigned_at").defaultNow(),
+  isActive: boolean("is_active").default(true),
+});
+
 // Reviews table
 export const reviews = pgTable("reviews", {
   id: serial("id").primaryKey(),
@@ -187,6 +197,7 @@ export const insertShippingInfoSchema = createInsertSchema(shippingInfo).omit({ 
 export const insertChatSchema = createInsertSchema(chats).omit({ id: true, timestamp: true });
 export const insertChatParticipantSchema = createInsertSchema(chatParticipants).omit({ id: true, joinedAt: true });
 export const insertBakerApplicationSchema = createInsertSchema(bakerApplications).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertBakerTeamSchema = createInsertSchema(bakerTeams).omit({ id: true, assignedAt: true });
 export const insertReviewSchema = createInsertSchema(reviews).omit({ id: true, createdAt: true, updatedAt: true });
 
 // Define types
@@ -225,6 +236,9 @@ export type InsertChatParticipant = z.infer<typeof insertChatParticipantSchema>;
 
 export type BakerApplication = typeof bakerApplications.$inferSelect;
 export type InsertBakerApplication = z.infer<typeof insertBakerApplicationSchema>;
+
+export type BakerTeam = typeof bakerTeams.$inferSelect;
+export type InsertBakerTeam = z.infer<typeof insertBakerTeamSchema>;
 
 export type ShippingInfo = typeof shippingInfo.$inferSelect;
 export type InsertShippingInfo = z.infer<typeof insertShippingInfoSchema>;

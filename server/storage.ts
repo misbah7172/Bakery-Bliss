@@ -12,6 +12,7 @@ import {
   chats, type Chat, type InsertChat,
   chatParticipants, type ChatParticipant, type InsertChatParticipant,
   bakerApplications, type BakerApplication, type InsertBakerApplication,
+  bakerTeams, type BakerTeam, type InsertBakerTeam,
   reviews, type Review, type InsertReview
 } from "@shared/schema";
 import { db } from "./db";
@@ -59,11 +60,19 @@ export interface IStorage {
   // Chat methods
   createChat(chat: InsertChat): Promise<Chat>;
   getChatsByOrderId(orderId: number): Promise<Chat[]>;
-  markChatsAsRead(chatIds: number[]): Promise<void>;
-  
-  // Baker application methods
+  markChatsAsRead(chatIds: number[]): Promise<void>;  // Baker application methods
   createBakerApplication(application: InsertBakerApplication): Promise<BakerApplication>;
+  getBakerApplicationById(id: number): Promise<BakerApplication | undefined>;
+  getBakerApplicationsByMainBaker(mainBakerId: number): Promise<BakerApplication[]>;
+  getApplicationsForMainBaker(mainBakerId: number): Promise<any[]>;
   updateBakerApplicationStatus(applicationId: number, status: string, reviewerId: number): Promise<BakerApplication | undefined>;
+  
+  // Baker team methods
+  createBakerTeam(team: InsertBakerTeam): Promise<BakerTeam>;
+  getJuniorBakersByMainBaker(mainBakerId: number): Promise<User[]>;
+  getMainBakerByJuniorBaker(juniorBakerId: number): Promise<User | undefined>;
+  updateUserCompletedOrders(userId: number): Promise<void>;
+  getUsersWithRole(role: string): Promise<User[]>;
   
   // Dashboard stats methods
   getCustomerStats(userId: number): Promise<any>;
@@ -537,7 +546,6 @@ export class DatabaseStorage implements IStorage {
       }).onConflictDoNothing();
     }
   }
-
   async markChatsAsRead(chatIds: number[]): Promise<void> {
     await db.update(chats)
       .set({ isRead: true })
@@ -550,6 +558,43 @@ export class DatabaseStorage implements IStorage {
     return application;
   }
 
+  async getBakerApplicationById(id: number): Promise<BakerApplication | undefined> {
+    const [application] = await db.select()
+      .from(bakerApplications)
+      .where(eq(bakerApplications.id, id));
+    return application;
+  }
+  async getBakerApplicationsByMainBaker(mainBakerId: number): Promise<BakerApplication[]> {
+    return await db.select()
+      .from(bakerApplications)
+      .where(and(
+        eq(bakerApplications.mainBakerId, mainBakerId),
+        eq(bakerApplications.status, 'pending')
+      ));
+  }
+
+  async getApplicationsForMainBaker(mainBakerId: number): Promise<any[]> {
+    const result = await db.select({
+      id: bakerApplications.id,
+      userId: bakerApplications.userId,
+      currentRole: bakerApplications.currentRole,
+      requestedRole: bakerApplications.requestedRole,
+      reason: bakerApplications.reason,
+      status: bakerApplications.status,
+      createdAt: bakerApplications.createdAt,
+      applicantName: users.fullName,
+      applicantEmail: users.email
+    })
+    .from(bakerApplications)
+    .innerJoin(users, eq(bakerApplications.userId, users.id))    .where(and(
+      eq(bakerApplications.mainBakerId, mainBakerId),
+      eq(bakerApplications.status, 'pending'),
+      eq(bakerApplications.requestedRole, 'junior_baker')
+    ));
+    
+    return result;
+  }
+
   async updateBakerApplicationStatus(applicationId: number, status: string, reviewerId: number): Promise<BakerApplication | undefined> {
     const [application] = await db.update(bakerApplications)
       .set({ 
@@ -560,6 +605,50 @@ export class DatabaseStorage implements IStorage {
       .where(eq(bakerApplications.id, applicationId))
       .returning();
     return application;
+  }
+
+  // Baker team methods
+  async createBakerTeam(teamData: InsertBakerTeam): Promise<BakerTeam> {
+    const [team] = await db.insert(bakerTeams).values(teamData).returning();
+    return team;
+  }
+  async getJuniorBakersByMainBaker(mainBakerId: number): Promise<User[]> {
+    const result = await db.select()
+    .from(bakerTeams)
+    .innerJoin(users, eq(bakerTeams.juniorBakerId, users.id))
+    .where(and(
+      eq(bakerTeams.mainBakerId, mainBakerId),
+      eq(bakerTeams.isActive, true),
+      eq(users.role, 'junior_baker')
+    ));
+    
+    return result.map(r => r.users);
+  }
+
+  async getMainBakerByJuniorBaker(juniorBakerId: number): Promise<User | undefined> {
+    const result = await db.select()
+    .from(bakerTeams)
+    .innerJoin(users, eq(bakerTeams.mainBakerId, users.id))
+    .where(and(
+      eq(bakerTeams.juniorBakerId, juniorBakerId),
+      eq(bakerTeams.isActive, true)
+    ));
+    
+    return result[0]?.users;
+  }
+
+  async updateUserCompletedOrders(userId: number): Promise<void> {
+    await db.update(users)
+      .set({ 
+        completedOrders: sql`${users.completedOrders} + 1`
+      })
+      .where(eq(users.id, userId));
+  }
+
+  async getUsersWithRole(role: string): Promise<User[]> {
+    return await db.select()
+      .from(users)
+      .where(eq(users.role, role as any));
   }
   
   // Dashboard stats methods

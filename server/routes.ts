@@ -27,7 +27,7 @@ const authenticate = async (req: Request, res: Response, next: any) => {
 
     console.log('Authentication attempt for user:', req.session.userId);
     
-    const user = await storage.getUser(req.session.userId);
+    const user = await storage.getUserById(req.session.userId);
     console.log('User found:', user);
     
     if (!user) {
@@ -145,29 +145,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Internal server error" });
     }
   });
-
   // Login route
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { email, password } = req.body;
-      
-      // Validate input
+      console.log('Login attempt:', { email, passwordLength: password?.length });
+        // Validate input
       if (!email || !password) {
+        console.log('Missing email or password');
         return res.status(400).json({ message: "Email and password are required" });
       }
       
+      // Trim whitespace from email and password
+      const trimmedEmail = email.trim();
+      const trimmedPassword = password.trim();
+      console.log('After trimming:', { 
+        email: trimmedEmail, 
+        passwordLength: trimmedPassword.length,
+        originalPasswordLength: password.length 
+      });
+      
       // Find user
-      const user = await storage.getUserByEmail(email);
+      console.log('Looking for user with email:', trimmedEmail);
+      const user = await storage.getUserByEmail(trimmedEmail);
+      console.log('User lookup result:', user ? { id: user.id, email: user.email, hasPassword: !!user.password } : 'User not found');
+      
       if (!user) {
+        console.log('No user found with email:', email);
+        return res.status(401).json({ message: "Invalid credentials" });
+      }      // Check password
+      console.log('Comparing passwords...');
+      console.log('Input password:', `"${trimmedPassword}"`);
+      console.log('Input password length:', trimmedPassword.length);
+      console.log('Input password bytes:', Buffer.from(trimmedPassword).toString('hex'));
+      console.log('Stored hash:', user.password);
+      
+      const isPasswordValid = await bcrypt.compare(trimmedPassword, user.password);
+      console.log('Password comparison result:', isPasswordValid);
+      
+      if (!isPasswordValid) {
+        console.log('Password mismatch for user:', trimmedEmail);
         return res.status(401).json({ message: "Invalid credentials" });
       }
       
-      // Check password
-      const isPasswordValid = await bcrypt.compare(password, user.password);
-      if (!isPasswordValid) {
-        return res.status(401).json({ message: "Invalid credentials" });
-      }
-        // Create session
+      console.log('Login successful for user:', user.id);
+      // Create session
       req.session.userId = user.id;
       
       res.json({
@@ -178,7 +200,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           fullName: user.fullName,
           role: user.role
         }
-      });    } catch (error) {
+      });
+    } catch (error) {
+      console.error('Login error:', error);
       res.status(500).json({ message: "Internal server error" });
     }
   });
@@ -649,7 +673,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Internal server error" });
     }
   });
-
   // Review baker application (admin only)
   app.patch("/api/baker-applications/:id", authenticate, authorize(['admin']), async (req, res) => {
     try {
@@ -678,6 +701,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(application);
     } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Review junior baker application (main baker only)
+  app.patch("/api/baker-applications/:id/main-baker-review", authenticate, authorize(['main_baker']), async (req, res) => {
+    try {
+      const applicationId = parseInt(req.params.id);
+      const { status } = req.body;
+      
+      if (!['approved', 'rejected'].includes(status)) {
+        return res.status(400).json({ message: "Status must be 'approved' or 'rejected'" });
+      }
+
+      // Get the application first to verify it's for this main baker
+      const application = await storage.getBakerApplicationById(applicationId);
+      if (!application) {
+        return res.status(404).json({ message: "Application not found" });
+      }
+
+      if (application.mainBakerId !== req.user.id) {
+        return res.status(403).json({ message: "You can only review applications to your team" });
+      }
+
+      if (application.status !== 'pending') {
+        return res.status(400).json({ message: "Application has already been reviewed" });
+      }
+
+      // Update application status
+      const updatedApplication = await storage.updateBakerApplicationStatus(applicationId, status, req.user.id);
+      
+      if (!updatedApplication) {
+        return res.status(404).json({ message: "Application not found" });
+      }
+      
+      // If approved, update user role and create team relationship
+      if (status === 'approved' && updatedApplication.userId) {
+        await storage.updateUserRole(updatedApplication.userId, 'junior_baker');
+        
+        // Create baker team relationship
+        await storage.createBakerTeam({
+          mainBakerId: req.user.id,
+          juniorBakerId: updatedApplication.userId,
+          isActive: true
+        });
+      }
+      
+      res.json(updatedApplication);
+    } catch (error) {
+      console.error("Error reviewing baker application:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get applications for main baker
+  app.get("/api/baker-applications/main-baker", authenticate, authorize(['main_baker']), async (req, res) => {
+    try {
+      const applications = await storage.getBakerApplicationsByMainBaker(req.user.id);
+      res.json(applications);
+    } catch (error) {
+      console.error("Error fetching baker applications:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });
@@ -796,18 +880,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const stats = await storage.getMainBakerStats();
       res.json(stats);
-    } catch (error) {
-      res.status(500).json({ message: "Internal server error" });
+    } catch (error) {      res.status(500).json({ message: "Internal server error" });
     }
   });
 
   // Get all junior bakers for order assignment
   app.get("/api/users/junior-bakers", authenticate, async (req, res) => {
     try {
-      const juniorBakers = await storage.getJuniorBakers();
+      const juniorBakers = await storage.getUsersWithRole('junior_baker');
       res.json(juniorBakers);
     } catch (error) {
       console.error("Error fetching junior bakers:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get all main bakers (for junior baker applications)
+  app.get("/api/users/main-bakers", async (req, res) => {
+    try {
+      const mainBakers = await storage.getUsersWithRole('main_baker');
+      
+      // Get junior baker counts for each main baker
+      const bakersWithCounts = await Promise.all(
+        mainBakers.map(async (baker) => {
+          const juniorBakers = await storage.getJuniorBakersByMainBaker(baker.id);
+          return {
+            ...baker,
+            juniorBakers: juniorBakers.length
+          };
+        })
+      );
+      
+      res.json(bakersWithCounts);
+    } catch (error) {
+      console.error("Error fetching main bakers:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get junior bakers for a specific main baker
+  app.get("/api/users/main-baker/:id/junior-bakers", authenticate, authorize(['main_baker', 'admin']), async (req, res) => {
+    try {
+      const mainBakerId = parseInt(req.params.id);
+      
+      // Check if the requesting user is the main baker or an admin
+      if (req.user.role === 'main_baker' && req.user.id !== mainBakerId) {
+        return res.status(403).json({ message: "You can only view your own team" });
+      }
+      
+      const juniorBakers = await storage.getJuniorBakersByMainBaker(mainBakerId);
+      res.json(juniorBakers);
+    } catch (error) {
+      console.error("Error fetching junior bakers for main baker:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });
