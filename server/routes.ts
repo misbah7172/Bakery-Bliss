@@ -377,9 +377,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.status(500).json({ message: "Internal server error" });
     }
-  });
-
-  // ===== ORDER ROUTES =====
+  });  // ===== ORDER ROUTES =====
   
   // Get user's orders
   app.get("/api/orders", authenticate, async (req, res) => {
@@ -399,6 +397,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(orders);
     } catch (error) {
+      console.error('Error fetching orders:', error);
       res.status(500).json({ message: "Internal server error" });
     }
   });
@@ -612,32 +611,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!order) {
         return res.status(404).json({ message: "Order not found" });
       }
-      
-      res.json(order);
+        res.json(order);
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
   });
 
-  // Assign junior baker to order
-  app.patch("/api/orders/:id/assign", authenticate, authorize(['main_baker', 'admin']), async (req, res) => {
-    try {
-      const orderId = parseInt(req.params.id);
-      const { juniorBakerId } = req.body;
-      
-      if (!juniorBakerId) {
-        return res.status(400).json({ message: "Junior Baker ID is required" });
-      }
-      
-      const order = await storage.assignOrderToJuniorBaker(orderId, juniorBakerId);
-      
-      if (!order) {
-        return res.status(404).json({ message: "Order not found" });
-      }
-      
-      res.json(order);
-    } catch (error) {      res.status(500).json({ message: "Internal server error" });
-    }  });
   // ===== CHAT ROUTES =====
   
   // Get chats for an order
@@ -1291,14 +1270,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('Junior Baker Tasks Response:', JSON.stringify(tasks, null, 2));
       res.json(tasks);
     } catch (error) {
-      console.error("Error fetching junior baker tasks:", error);
-      res.status(500).json({ message: "Internal server error" });
+      console.error("Error fetching junior baker tasks:", error);      res.status(500).json({ message: "Internal server error" });
     }
-  });  // Assign order to junior baker with deadline
+  });
+  // Assign order to junior baker OR take order as main baker
   app.patch("/api/orders/:orderId/assign", authenticate, authorize(['main_baker']), async (req, res) => {
     try {
       const { orderId } = req.params;
-      const { juniorBakerId, deadline } = req.body;
+      const { juniorBakerId, takeOrderMyself, deadline } = req.body;
+      
+      console.log('📝 Assignment request received:', {
+        orderId,
+        juniorBakerId,
+        takeOrderMyself,
+        deadline,
+        body: req.body
+      });
       
       if (!req.user) {
         return res.status(401).json({ message: "User not authenticated" });
@@ -1306,56 +1293,86 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const mainBakerId = req.user.id;
       
-      if (!juniorBakerId) {
-        return res.status(400).json({ message: "Junior baker ID is required" });
+      // Must either assign to junior baker or take order themselves
+      if (!juniorBakerId && !takeOrderMyself) {
+        console.log('❌ Neither juniorBakerId nor takeOrderMyself provided');
+        return res.status(400).json({ message: "Must either assign to junior baker or take order yourself" });
+      }
+      
+      if (juniorBakerId && takeOrderMyself) {
+        console.log('❌ Both juniorBakerId and takeOrderMyself provided');
+        return res.status(400).json({ message: "Cannot both assign to junior baker and take order yourself" });
       }
       
       // Verify the order belongs to this main baker
       const order = await storage.getOrderById(parseInt(orderId));
       if (!order || order.mainBakerId !== mainBakerId) {
-        return res.status(403).json({ message: "You can only assign your own orders" });
+        console.log('❌ Order access denied:', { order: order ? order.id : 'not found', mainBakerId });
+        return res.status(403).json({ message: "You can only manage your own orders" });
       }
       
-      // Verify the junior baker exists
-      const juniorBaker = await storage.getUser(juniorBakerId);
-      if (!juniorBaker || juniorBaker.role !== 'junior_baker') {
-        return res.status(404).json({ message: "Junior baker not found" });
-      }
+      let resultMessage = "";
+      let systemMessage = "";
+      
+      if (takeOrderMyself) {
+        console.log('🔄 Main baker taking order personally...');
+        // Main baker takes the order themselves
+        await storage.takeOrderAsMainBaker(parseInt(orderId), mainBakerId, deadline);
+        
+        systemMessage = `🎂 Your order is now being personally handled by our Main Baker! They will be working on your order directly and can answer any questions you might have.${deadline ? ` Expected completion: ${new Date(deadline).toLocaleDateString()}` : ''}`;
+        
+        resultMessage = "Order taken successfully";
+        
+        console.log(`✅ Order ${orderId} taken by main baker ${mainBakerId} with deadline ${deadline || 'existing'}`);
+      } else {
+        console.log('🔄 Assigning order to junior baker...');
+        // Assign to junior baker (existing functionality)
+        // Verify the junior baker exists
+        const juniorBaker = await storage.getUser(juniorBakerId);
+        if (!juniorBaker || juniorBaker.role !== 'junior_baker') {
+          return res.status(404).json({ message: "Junior baker not found" });
+        }
+        
         // Assign the order
-      await storage.assignOrderToJuniorBaker(parseInt(orderId), juniorBakerId, deadline);
+        await storage.assignOrderToJuniorBaker(parseInt(orderId), juniorBakerId, deadline);
+        
+        // Create a system message to notify about the assignment
+        const juniorBakerName = juniorBaker.fullName;
+        systemMessage = `🎂 Your order has been assigned to ${juniorBakerName}, our skilled Junior Baker! They will be working on your order and can answer any questions you might have about the baking process.${deadline ? ` Expected completion: ${new Date(deadline).toLocaleDateString()}` : ''}`;
+        
+        resultMessage = "Order assigned successfully";
+        
+        console.log(`✅ Order ${orderId} assigned to junior baker ${juniorBakerId} with deadline ${deadline || 'existing'}`);
+      }
       
-      // Initialize/update chat participants for this order to include the junior baker
+      // Initialize/update chat participants for this order
       await storage.initializeChatForOrder(parseInt(orderId));
       
-      // Create a system message to notify about the assignment
-      const juniorBakerName = juniorBaker.fullName;
-      const systemMessage = `🎂 Your order has been assigned to ${juniorBakerName}, our skilled Junior Baker! They will be working on your order and can answer any questions you might have about the baking process.${deadline ? ` Expected completion: ${new Date(deadline).toLocaleDateString()}` : ''}`;
-      
+      // Send system message to customer
       await storage.createChat({
         orderId: parseInt(orderId),
         senderId: mainBakerId, // Main baker sends the notification
         message: systemMessage
       });
       
-      console.log(`Order ${orderId} assigned to junior baker ${juniorBakerId} with deadline ${deadline || 'existing'}`);
-      console.log(`Chat initialized between customer and junior baker for order ${orderId}`);
+      console.log(`💬 Chat initialized for order ${orderId}`);
       
       res.json({
-        message: "Order assigned successfully and chat created",
+        message: resultMessage,
         orderId: parseInt(orderId),
-        juniorBakerId: juniorBakerId,
+        juniorBakerId: juniorBakerId || null,
+        takenByMainBaker: !!takeOrderMyself,
         deadline: deadline
       });
     } catch (error) {
-      console.error("Error assigning order:", error);
+      console.error("❌ Error managing order:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });
-
   // Junior Baker Assigned Orders for Chat
   app.get("/api/junior-baker/assigned-orders", authenticate, authorize(['junior_baker']), async (req, res) => {
     try {
-      const juniorBakerId = req.user.id;
+      const juniorBakerId = req.user!.id;
       
       // Get orders assigned to this junior baker with customer info
       const orders = await storage.getOrdersByJuniorBakerWithCustomerInfo(juniorBakerId);
@@ -1363,6 +1380,293 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(orders);
     } catch (error) {
       console.error("Error fetching assigned orders for chat:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Review endpoints
+  app.post("/api/reviews", authenticate, async (req, res) => {
+    try {
+      const { orderId, rating, comment } = req.body;
+      const userId = req.user!.id;
+
+      if (!orderId || !rating) {
+        return res.status(400).json({ message: "Order ID and rating are required" });
+      }
+
+      if (rating < 1 || rating > 5) {
+        return res.status(400).json({ message: "Rating must be between 1 and 5" });
+      }
+
+      // Check if user can review this order
+      const canReview = await storage.canUserReviewOrder(userId, orderId);
+      if (!canReview) {
+        return res.status(403).json({ message: "You cannot review this order" });
+      }
+
+      // Get order details to find the junior baker
+      const order = await storage.getOrderById(orderId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      const reviewData = {
+        orderId,
+        userId,
+        juniorBakerId: order.juniorBakerId,
+        rating: parseInt(rating),
+        comment: comment || null
+      };
+
+      const review = await storage.createReview(reviewData);
+      console.log('Review created:', JSON.stringify(review, null, 2));
+
+      res.status(201).json(review);
+    } catch (error) {
+      console.error("Error creating review:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/reviews", async (req, res) => {
+    try {
+      const reviews = await storage.getAllReviews();
+      res.json(reviews);
+    } catch (error) {
+      console.error("Error fetching reviews:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/reviews/order/:orderId", authenticate, async (req, res) => {
+    try {
+      const { orderId } = req.params;
+      const reviews = await storage.getReviewsByOrderId(parseInt(orderId));
+      res.json(reviews);
+    } catch (error) {
+      console.error("Error fetching order reviews:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/reviews/junior-baker/:juniorBakerId", authenticate, authorize(['junior_baker', 'main_baker', 'admin']), async (req, res) => {
+    try {
+      const { juniorBakerId } = req.params;
+      const reviews = await storage.getReviewsByJuniorBakerId(parseInt(juniorBakerId));
+      const averageRating = await storage.getBakerAverageRating(parseInt(juniorBakerId));
+      
+      res.json({
+        reviews,
+        averageRating: Math.round(averageRating * 10) / 10 // Round to 1 decimal place
+      });
+    } catch (error) {
+      console.error("Error fetching junior baker reviews:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Mark order as delivered (customer only)
+  app.patch("/api/orders/:orderId/delivered", authenticate, authorize(['customer']), async (req, res) => {
+    try {
+      const { orderId } = req.params;
+      const userId = req.user!.id;
+
+      // Verify the order belongs to this customer and is ready
+      const order = await storage.getOrderById(parseInt(orderId));
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      if (order.userId !== userId) {
+        return res.status(403).json({ message: "You can only mark your own orders as delivered" });
+      }
+
+      if (order.status !== 'ready') {
+        return res.status(400).json({ message: "Only orders with 'ready' status can be marked as delivered" });
+      }
+
+      // Update order status to delivered
+      await storage.updateOrderStatus(parseInt(orderId), 'delivered');
+      
+      console.log(`Order ${orderId} marked as delivered by customer ${userId}`);
+      
+      res.json({ message: "Order marked as delivered successfully" });
+    } catch (error) {
+      console.error("Error marking order as delivered:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });  // Get completed orders with reviews for junior baker
+  app.get("/api/junior-baker/completed-orders", authenticate, authorize(['junior_baker']), async (req, res) => {
+    try {
+      const juniorBakerId = req.user!.id;
+      
+      // Get completed orders for this junior baker with reviews
+      const completedOrders = await storage.getJuniorBakerCompletedOrdersWithReviews(juniorBakerId);
+      res.json(completedOrders);
+    } catch (error) {
+      console.error("Error fetching completed orders for junior baker:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get main baker's personal orders (ones they are working on themselves)
+  app.get("/api/main-baker/personal-orders", authenticate, authorize(['main_baker']), async (req, res) => {
+    try {
+      const mainBakerId = req.user!.id;
+      const personalOrders = await storage.getMainBakerPersonalOrders(mainBakerId);
+      res.json(personalOrders);
+    } catch (error) {
+      console.error("Error fetching main baker personal orders:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  // Get main baker's orders (for order management page)
+  app.get("/api/main-baker/orders", authenticate, authorize(['main_baker']), async (req, res) => {
+    try {
+      const mainBakerId = req.user!.id;
+      console.log(`🔍 [${new Date().toISOString()}] Fetching main baker orders for user ${mainBakerId}`);
+      
+      // Get all orders for this main baker
+      const rawOrders = await storage.getMainBakerOrders(mainBakerId);
+      
+      console.log(`📊 Main baker orders for user ${mainBakerId}:`, rawOrders.length, 'orders found');
+      
+      // Transform orders to match frontend expectations
+      const orders = await Promise.all(rawOrders.map(async (order) => {        // Get customer name from order items or user
+        let customerName = 'Unknown Customer';
+        try {
+          if (order.userId) {
+            const customer = await storage.getUserById(order.userId);
+            if (customer) {
+              customerName = customer.fullName;
+            }
+          }
+        } catch (e) {
+          console.log('Error getting customer:', e);
+        }
+
+        // Get assigned baker name if any
+        let assignedBaker = null;
+        if (order.juniorBakerId) {
+          try {
+            const baker = await storage.getUserById(order.juniorBakerId);
+            if (baker) {
+              assignedBaker = baker.fullName;
+            }
+          } catch (e) {
+            console.log('Error getting baker:', e);
+          }
+        }
+        
+        // Get order items (simplified for now)
+        const items = ['Items details']; // TODO: Get actual items
+          return {
+          id: order.id,
+          orderNumber: order.orderId,
+          status: order.status,
+          priority: 'medium' as const, // TODO: Add priority logic
+          customerName,
+          assignedBaker,
+          items,
+          total: order.totalAmount,
+          createdAt: order.createdAt,
+          dueDate: order.deadline
+        };
+      }));
+      
+      res.json(orders);
+    } catch (error) {
+      console.error("Error fetching main baker orders:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });  // Get junior bakers with detailed stats for baker management
+  app.get("/api/main-baker/junior-bakers", authenticate, authorize(['main_baker']), async (req, res) => {
+    try {
+      const mainBakerId = req.user!.id;
+      console.log(`Fetching junior bakers for main baker ${mainBakerId}`);
+      
+      // Get junior bakers assigned to this main baker
+      const teamMembers = await storage.getJuniorBakersByMainBaker(mainBakerId);
+      console.log(`Found ${teamMembers.length} team members:`, teamMembers.map(m => ({ id: m.id, name: m.fullName })));
+      
+      // Get detailed stats for each team member
+      const teamWithStats = await Promise.all(
+        teamMembers.map(async (member) => {
+          console.log(`Getting stats for ${member.fullName} (ID: ${member.id})`);
+          
+          const activeOrders = await storage.getCurrentOrdersCountForBaker(member.id);
+          console.log(`  Active orders: ${activeOrders}`);
+          
+          // Get completed orders count
+          const completedOrdersCount = await storage.getCompletedOrdersCount(member.id);
+          console.log(`  Completed orders: ${completedOrdersCount}`);
+          
+          // Get average rating from reviews
+          const averageRating = await storage.getBakerAverageRating(member.id);
+          console.log(`  Average rating: ${averageRating}`);
+          
+          // Calculate total earnings (simplified as completed orders * 20)
+          const totalEarnings = completedOrdersCount * 20; // $20 per completed order
+          
+          // Determine status based on active orders and recent activity
+          let status: 'active' | 'busy' | 'offline' = 'offline';
+          if (activeOrders > 0) {
+            status = activeOrders >= 3 ? 'busy' : 'active';
+          }
+            const result = {
+            id: member.id,
+            fullName: member.fullName,
+            email: member.email,
+            profileImage: member.profileImage,
+            joinedAt: member.createdAt,
+            completedOrders: Number(completedOrdersCount),
+            activeOrders: Number(activeOrders),
+            averageRating: Number(averageRating),
+            totalEarnings,
+            status,
+            lastActive: member.createdAt // Use createdAt as fallback for lastActive
+          };
+          
+          console.log(`  Final stats for ${member.fullName}:`, result);
+          return result;
+        })
+      );
+      
+      console.log(`Returning ${teamWithStats.length} junior bakers with stats`);
+      res.json(teamWithStats);
+    } catch (error) {
+      console.error("Error fetching junior bakers with stats:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get customer's application status
+  app.get("/api/customer/application-status", authenticate, authorize(['customer']), async (req, res) => {
+    try {
+      const customerId = req.user!.id;
+      
+      // Check if customer has any active applications
+      const activeApplications = await storage.getBakerApplicationsByUser(customerId);
+      const activeApp = activeApplications.find(app => app.status === 'pending');
+      
+      if (activeApp) {
+        // Get main baker info
+        const mainBaker = await storage.getUser(activeApp.mainBakerId!);
+        
+        res.json({
+          hasActiveApplication: true,
+          applicationStatus: activeApp.status,
+          applicationId: activeApp.id,
+          mainBakerId: activeApp.mainBakerId,
+          mainBakerName: mainBaker?.fullName
+        });
+      } else {
+        res.json({
+          hasActiveApplication: false
+        });
+      }
+    } catch (error) {
+      console.error("Error checking application status:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });

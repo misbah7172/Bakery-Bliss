@@ -16,7 +16,7 @@ import {
   reviews, type Review, type InsertReview
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, ne, desc, sql, like, or, gte, notInArray } from "drizzle-orm";
+import { eq, and, ne, desc, sql, like, or, gte, notInArray, inArray } from "drizzle-orm";
 
 // Storage interface definition
 export interface IStorage {
@@ -47,8 +47,9 @@ export interface IStorage {
   getOrdersByUserId(userId: number): Promise<Order[]>;
   getOrdersWithDetailsByUserId(userId: number): Promise<any[]>;  getOrdersByJuniorBaker(juniorBakerId: number): Promise<any[]>; // New method for tasks
   getOrdersByJuniorBakerWithCustomerInfo(juniorBakerId: number): Promise<any[]>; // For chat feature
-  getCustomerOrdersForChat(customerId: number): Promise<any[]>; // For customer chat
-  assignOrderToJuniorBaker(orderId: number, juniorBakerId: number, deadline?: string): Promise<Order | undefined>; // Updated signature
+  getCustomerOrdersForChat(customerId: number): Promise<any[]>; // For customer chat  assignOrderToJuniorBaker(orderId: number, juniorBakerId: number, deadline?: string): Promise<Order | undefined>; // Updated signature
+  assignOrderToMainBaker(orderId: number, mainBakerId: number, deadline?: string): Promise<Order | undefined>; // New method for main baker self-assignment
+  takeOrderAsMainBaker(orderId: number, mainBakerId: number, deadline?: string): Promise<Order | undefined>; // New method for main baker to take order themselves
   addOrderItem(item: InsertOrderItem): Promise<OrderItem>;
   getUserOrders(userId: number): Promise<Order[]>;
   getUserOrdersWithDetails(userId: number): Promise<any[]>;
@@ -66,6 +67,7 @@ export interface IStorage {
   createBakerApplication(application: InsertBakerApplication): Promise<BakerApplication>;
   getBakerApplicationById(id: number): Promise<BakerApplication | undefined>;
   getBakerApplicationsByMainBaker(mainBakerId: number): Promise<BakerApplication[]>;
+  getBakerApplicationsByUser(userId: number): Promise<BakerApplication[]>;
   getApplicationsForMainBaker(mainBakerId: number): Promise<any[]>;
   updateBakerApplicationStatus(applicationId: number, status: string, reviewerId: number): Promise<BakerApplication | undefined>;
   
@@ -90,9 +92,9 @@ export interface IStorage {
   getReviewsByOrderId(orderId: number): Promise<Review[]>;
   getReviewsByUserId(userId: number): Promise<Review[]>;
   getReviewsByJuniorBakerId(juniorBakerId: number): Promise<Review[]>;
-  getBakerAverageRating(juniorBakerId: number): Promise<number>;
-  getAllReviews(): Promise<any[]>;
+  getBakerAverageRating(juniorBakerId: number): Promise<number>;  getAllReviews(): Promise<any[]>;
   canUserReviewOrder(userId: number, orderId: number): Promise<boolean>;
+  getJuniorBakerCompletedOrdersWithReviews(juniorBakerId: number): Promise<any[]>;
 
   // Admin methods
   getAdminStats(): Promise<any>;
@@ -106,6 +108,12 @@ export interface IStorage {
   getJuniorBakers(): Promise<User[]>;
   getCustomCakeById(customCakeId: number): Promise<CustomCake | null>;
   getCurrentOrdersCountForBaker(bakerId: number): Promise<number>;
+  getCompletedOrdersCount(bakerId: number): Promise<number>;
+  // Get customer orders with baker info for chat
+  getCustomerOrdersForChat(customerId: number): Promise<any[]>;
+  // Get orders assigned to junior baker with customer info for chat
+  getOrdersByJuniorBakerWithCustomerInfo(juniorBakerId: number): Promise<any[]>;
+  getJuniorBakerCompletedOrdersWithReviews(juniorBakerId: number): Promise<any[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -544,6 +552,67 @@ export class DatabaseStorage implements IStorage {
     return order;
   }
   
+  async assignOrderToMainBaker(orderId: number, mainBakerId: number, deadline?: string): Promise<Order | undefined> {
+    // Get the order to check if it already has a chat
+    const [existingOrder] = await db.select().from(orders).where(eq(orders.id, orderId));
+    
+    // Prepare update data
+    const updateData: any = {
+      mainBakerId, 
+      status: 'pending', // Set to pending when assigned
+      updatedAt: new Date()
+    };
+    
+    // Add deadline if provided
+    if (deadline) {
+      updateData.deadline = new Date(deadline);
+    }
+    
+    // Update the order with the main baker ID and optional deadline
+    const [order] = await db.update(orders)
+      .set(updateData)
+      .where(eq(orders.id, orderId))
+      .returning();
+    
+    if (order) {
+      // Initialize chat participants for this order
+      await this.initializeChatForOrder(order.id);
+    }
+    
+    return order;
+  }
+
+  // New method for main baker to take order themselves (self-assign)
+  async takeOrderAsMainBaker(orderId: number, mainBakerId: number, deadline?: string): Promise<Order | undefined> {
+    // Prepare update data - main baker takes the order themselves
+    const updateData: any = {
+      status: 'processing', // Set to processing when main baker takes it
+      juniorBakerId: null, // Clear any junior baker assignment
+      updatedAt: new Date()
+    };
+    
+    // Add deadline if provided
+    if (deadline) {
+      updateData.deadline = new Date(deadline);
+    }
+    
+    // Update the order - main baker is already assigned, just taking it
+    const [order] = await db.update(orders)
+      .set(updateData)
+      .where(and(
+        eq(orders.id, orderId),
+        eq(orders.mainBakerId, mainBakerId)
+      ))
+      .returning();
+    
+    if (order) {
+      // Initialize chat participants for this order
+      await this.initializeChatForOrder(order.id);
+    }
+    
+    return order;
+  }
+  
   async deleteOrder(orderId: number): Promise<void> {
     try {
       console.log('Deleting order:', orderId);
@@ -674,6 +743,12 @@ export class DatabaseStorage implements IStorage {
         eq(bakerApplications.mainBakerId, mainBakerId),
         eq(bakerApplications.status, 'pending')
       ));
+  }
+
+  async getBakerApplicationsByUser(userId: number): Promise<BakerApplication[]> {
+    return await db.select()
+      .from(bakerApplications)
+      .where(eq(bakerApplications.userId, userId));
   }
 
   async getApplicationsForMainBaker(mainBakerId: number): Promise<any[]> {
@@ -1239,6 +1314,20 @@ export class DatabaseStorage implements IStorage {
     return result[0]?.count || 0;
   }
 
+  // Get completed orders count for a baker
+  async getCompletedOrdersCount(bakerId: number): Promise<number> {
+    const result = await db.select({ count: sql<number>`COUNT(*)` })
+      .from(orders)
+      .where(
+        and(
+          eq(orders.juniorBakerId, bakerId),
+          inArray(orders.status, ['delivered'])
+        )
+      );
+    
+    return result[0]?.count || 0;
+  }
+
   // Get customer orders with baker info for chat
   async getCustomerOrdersForChat(customerId: number): Promise<any[]> {
     const customerOrders = await db.select({
@@ -1339,6 +1428,95 @@ export class DatabaseStorage implements IStorage {
     );
 
     return ordersWithItems;
+  }
+
+  async getJuniorBakerCompletedOrdersWithReviews(juniorBakerId: number): Promise<any[]> {
+    try {
+      // Get completed orders for this junior baker
+      const ordersData = await db.select({
+        orderId: orders.id,
+        orderNumber: orders.orderId,
+        customerName: users.fullName,
+        total: orders.totalAmount,
+        status: orders.status,
+        completedAt: orders.updatedAt,
+        createdAt: orders.createdAt
+      })
+      .from(orders)
+      .leftJoin(users, eq(orders.userId, users.id))
+      .where(
+        and(
+          eq(orders.juniorBakerId, juniorBakerId),
+          inArray(orders.status, ['delivered', 'ready'])
+        )
+      )
+      .orderBy(desc(orders.updatedAt));
+
+      // Get reviews for these orders
+      const orderIds = ordersData.map(order => order.orderId);
+      const reviewsData = orderIds.length > 0 ? await db.select({
+        orderId: reviews.orderId,
+        rating: reviews.rating,
+        comment: reviews.comment,
+        createdAt: reviews.createdAt
+      })
+      .from(reviews)
+      .where(inArray(reviews.orderId, orderIds)) : [];
+
+      // Get order items for each order
+      const orderItemsData = orderIds.length > 0 ? await db.select({
+        orderId: orderItems.orderId,
+        productName: products.name,
+        customCakeName: customCakes.name,
+        quantity: orderItems.quantity
+      })
+      .from(orderItems)
+      .leftJoin(products, eq(orderItems.productId, products.id))
+      .leftJoin(customCakes, eq(orderItems.customCakeId, customCakes.id))
+      .where(inArray(orderItems.orderId, orderIds)) : [];
+
+      // Combine data
+      const completedOrders = ordersData.map(order => {
+        const orderReview = reviewsData.find(review => review.orderId === order.orderId);
+        const items = orderItemsData
+          .filter(item => item.orderId === order.orderId)
+          .map(item => `${item.productName || item.customCakeName} (${item.quantity})`);
+        
+        // Calculate duration in hours (rough estimate)
+        const duration = order.completedAt && order.createdAt ? 
+          Math.round((new Date(order.completedAt).getTime() - new Date(order.createdAt).getTime()) / (1000 * 60 * 60)) : 
+          null;
+
+        return {
+          id: order.orderId,
+          orderNumber: order.orderNumber,
+          customerName: order.customerName,
+          items,
+          total: order.total,
+          completedAt: order.completedAt,
+          rating: orderReview?.rating || null,
+          feedback: orderReview?.comment || null,
+          duration: duration || 24 // Default to 24 hours if we can't calculate
+        };
+      });
+
+      return completedOrders;
+    } catch (error) {
+      console.error('Error fetching junior baker completed orders with reviews:', error);
+      throw error;
+    }
+  }
+
+  // New method to get orders that main baker is personally working on
+  async getMainBakerPersonalOrders(mainBakerId: number): Promise<Order[]> {
+    return await db.select()
+      .from(orders)
+      .where(and(
+        eq(orders.mainBakerId, mainBakerId),
+        sql`${orders.juniorBakerId} IS NULL`,
+        eq(orders.status, 'processing')
+      ))
+      .orderBy(desc(orders.updatedAt));
   }
 }
 

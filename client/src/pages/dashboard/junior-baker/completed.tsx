@@ -36,7 +36,6 @@ const JuniorBakerCompleted = () => {
       </AppLayout>
     );
   }
-
   // Fetch completed orders
   const { data: completedOrders = [], isLoading } = useQuery<CompletedOrder[]>({
     queryKey: ["/api/junior-baker/completed-orders"],

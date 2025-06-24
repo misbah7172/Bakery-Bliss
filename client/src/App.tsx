@@ -30,6 +30,7 @@ const CustomerOrderDetail = lazy(() => import("@/pages/order-detail"));
 const CustomerSaved = lazy(() => import("@/pages/dashboard/customer/saved"));
 const CustomerChat = lazy(() => import("@/pages/dashboard/customer/chat"));
 const CustomerSettings = lazy(() => import("@/pages/dashboard/customer/settings"));
+const CustomerApply = lazy(() => import("@/pages/dashboard/customer/apply"));
 
 // Junior Baker Dashboard Pages
 const JuniorBakerApplyPromotion = lazy(() => import("@/pages/dashboard/junior-baker/apply-promotion"));
@@ -95,6 +96,7 @@ function App() {
         <Route path="/dashboard/customer/chat" component={CustomerChat} />
         <Route path="/dashboard/customer/chat/:orderId" component={CustomerChat} />
         <Route path="/dashboard/customer/settings" component={CustomerSettings} />
+        <Route path="/dashboard/customer/apply" component={CustomerApply} />
           {/* Junior Baker dashboard pages */}
         <Route path="/dashboard/junior-baker/apply-promotion" component={JuniorBakerApplyPromotion} />
         <Route path="/dashboard/junior-baker/tasks" component={JuniorBakerTasks} />

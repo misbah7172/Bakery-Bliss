@@ -99,10 +99,10 @@ export default function MainBakerDashboard() {
   if (user.role !== "main_baker") {
     navigate("/");
     return null;
-  }
-    const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  }  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [selectedJuniorBaker, setSelectedJuniorBaker] = useState("");
   const [selectedDeadline, setSelectedDeadline] = useState("");
+  const [takeOrderMyself, setTakeOrderMyself] = useState(false);
   const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
 
   // Fetch dashboard stats
@@ -132,15 +132,19 @@ export default function MainBakerDashboard() {
   const { data: applications } = useQuery<BakerApplication[]>({
     queryKey: ["/api/baker-applications/pending"],
     enabled: !!user
-  });
-  // Assign order to junior baker mutation
+  });  // Assign order to junior baker OR take order themselves mutation
   const assignOrderMutation = useMutation({
-    mutationFn: async ({ orderId, juniorBakerId, deadline }: { orderId: number; juniorBakerId: number; deadline?: string }) => {
+    mutationFn: async ({ orderId, juniorBakerId, takeOrderMyself, deadline }: { 
+      orderId: number; 
+      juniorBakerId?: number; 
+      takeOrderMyself?: boolean;
+      deadline?: string 
+    }) => {
       const response = await fetch(`/api/orders/${orderId}/assign`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ juniorBakerId, deadline })
+        body: JSON.stringify({ juniorBakerId, takeOrderMyself, deadline })
       });
       
       if (!response.ok) {
@@ -148,8 +152,13 @@ export default function MainBakerDashboard() {
       }
       
       return response.json();
-    },    onSuccess: () => {
-      toast.success("Order assigned successfully! A chat has been created between the junior baker and customer.");
+    },
+    onSuccess: (data) => {
+      if (data.takenByMainBaker) {
+        toast.success("Order taken successfully! You are now working on this order directly.");
+      } else {
+        toast.success("Order assigned successfully! A chat has been created between the junior baker and customer.");
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       setIsAssignDialogOpen(false);
       setSelectedOrder(null);
@@ -157,7 +166,7 @@ export default function MainBakerDashboard() {
       setSelectedDeadline("");
     },
     onError: () => {
-      toast.error("Failed to assign order");
+      toast.error("Failed to manage order");
     }
   });
 
@@ -186,20 +195,29 @@ export default function MainBakerDashboard() {
       toast.error("Failed to update application");
     }
   });
-
   const handleAssignOrder = (order: Order) => {
     setSelectedOrder(order);
+    setTakeOrderMyself(false);
+    setSelectedJuniorBaker("");
+    setSelectedDeadline("");
     setIsAssignDialogOpen(true);
   };
+  
   const handleConfirmAssignment = () => {
-    if (!selectedOrder || !selectedJuniorBaker) {
-      toast.error("Please select a junior baker");
+    if (!selectedOrder) {
+      toast.error("No order selected");
+      return;
+    }
+
+    if (!takeOrderMyself && !selectedJuniorBaker) {
+      toast.error("Please select a junior baker or choose to take the order yourself");
       return;
     }
 
     assignOrderMutation.mutate({
       orderId: selectedOrder.id,
-      juniorBakerId: parseInt(selectedJuniorBaker),
+      juniorBakerId: takeOrderMyself ? undefined : parseInt(selectedJuniorBaker),
+      takeOrderMyself: takeOrderMyself,
       deadline: selectedDeadline || undefined
     });
   };
@@ -279,8 +297,7 @@ export default function MainBakerDashboard() {
           </Card>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Orders Management */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">          {/* Orders Management */}
           <div className="lg:col-span-2">
             <Card>
               <CardHeader>
@@ -289,56 +306,126 @@ export default function MainBakerDashboard() {
                   Orders Management
                 </CardTitle>
                 <CardDescription>
-                  Assign new orders to your junior bakers
+                  Manage orders: assign to junior bakers or work on them yourself
                 </CardDescription>
-              </CardHeader>
-              <CardContent>
+              </CardHeader>              <CardContent>
                 {ordersLoading ? (
                   <div className="flex items-center justify-center h-32">
                     <Loader2 className="h-8 w-8 animate-spin" />
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {orders?.filter(order => order.status === 'pending' || !order.juniorBakerId).map((order) => (
-                      <div key={order.id} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-3">
-                            <Badge className={getStatusColor(order.status)}>
-                              {order.status}
-                            </Badge>
-                            <span className="font-medium">Order {order.orderId}</span>
-                          </div>
-                          <span className="font-bold">{formatCurrency(order.totalAmount)}</span>
-                        </div>
-                        
-                        <div className="text-sm text-gray-600 mb-3">
-                          <p>Customer: {order.customerName || 'N/A'}</p>
-                          <p>Deadline: {format(new Date(order.deadline), 'PPp')}</p>
-                          <p>Items: {order.items?.length || 0} items</p>
-                        </div>
+                  </div>                ) : (
+                  <div className="space-y-6">
+                    {/* Orders to be assigned */}
+                    <div>
+                      <h4 className="font-semibold mb-3 text-sm text-gray-700">Pending Assignment</h4>
+                      <div className="space-y-4">
+                        {orders?.filter(order => order.status === 'pending' && !order.juniorBakerId).map((order) => (
+                          <div key={order.id} className="border rounded-lg p-4 bg-yellow-50">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-3">
+                                <Badge className={getStatusColor(order.status)}>
+                                  {order.status}
+                                </Badge>
+                                <span className="font-medium">Order {order.orderId}</span>
+                              </div>
+                              <span className="font-bold">{formatCurrency(order.totalAmount)}</span>
+                            </div>
+                            
+                            <div className="text-sm text-gray-600 mb-3">
+                              <p>Customer: {order.customerName || 'N/A'}</p>
+                              <p>Deadline: {format(new Date(order.deadline), 'PPp')}</p>
+                              <p>Items: {order.items?.length || 0} items</p>
+                            </div>
 
-                        {!order.juniorBakerId ? (
-                          <Button 
-                            size="sm" 
-                            onClick={() => handleAssignOrder(order)}
-                            disabled={!juniorBakers?.length}
-                          >
-                            <UserPlus className="h-4 w-4 mr-2" />
-                            Assign to Junior Baker
-                          </Button>
-                        ) : (
-                          <Badge variant="outline">
-                            Assigned to Junior Baker
-                          </Badge>
+                            <Button 
+                              size="sm" 
+                              onClick={() => handleAssignOrder(order)}
+                            >
+                              <UserPlus className="h-4 w-4 mr-2" />
+                              Manage Order
+                            </Button>
+                          </div>
+                        ))}
+                        
+                        {orders?.filter(order => order.status === 'pending' && !order.juniorBakerId).length === 0 && (
+                          <div className="text-center py-4 text-gray-500 text-sm">
+                            No orders pending assignment
+                          </div>
                         )}
                       </div>
-                    ))}
-                    
-                    {orders?.filter(order => order.status === 'pending' || !order.juniorBakerId).length === 0 && (
-                      <div className="text-center py-8 text-gray-500">
-                        No pending orders to assign
+                    </div>
+
+                    {/* Orders main baker is working on personally */}
+                    <div>
+                      <h4 className="font-semibold mb-3 text-sm text-gray-700">My Personal Orders</h4>
+                      <div className="space-y-4">
+                        {orders?.filter(order => order.status === 'processing' && !order.juniorBakerId).map((order) => (
+                          <div key={order.id} className="border rounded-lg p-4 bg-blue-50">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-3">
+                                <Badge className="bg-blue-100 text-blue-800">
+                                  Working on it
+                                </Badge>
+                                <span className="font-medium">Order {order.orderId}</span>
+                              </div>
+                              <span className="font-bold">{formatCurrency(order.totalAmount)}</span>
+                            </div>
+                            
+                            <div className="text-sm text-gray-600 mb-3">
+                              <p>Customer: {order.customerName || 'N/A'}</p>
+                              <p>Deadline: {format(new Date(order.deadline), 'PPp')}</p>
+                              <p>Items: {order.items?.length || 0} items</p>
+                            </div>
+
+                            <Badge variant="outline" className="bg-blue-100">
+                              <ChefHat className="h-3 w-3 mr-1" />
+                              Working on this personally
+                            </Badge>
+                          </div>
+                        ))}
+                        
+                        {orders?.filter(order => order.status === 'processing' && !order.juniorBakerId).length === 0 && (
+                          <div className="text-center py-4 text-gray-500 text-sm">
+                            No orders currently working on personally
+                          </div>
+                        )}
                       </div>
-                    )}
+                    </div>
+
+                    {/* Orders assigned to junior bakers */}
+                    <div>
+                      <h4 className="font-semibold mb-3 text-sm text-gray-700">Assigned to Junior Bakers</h4>
+                      <div className="space-y-4">
+                        {orders?.filter(order => order.juniorBakerId).map((order) => (
+                          <div key={order.id} className="border rounded-lg p-4 bg-green-50">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-3">
+                                <Badge className={getStatusColor(order.status)}>
+                                  {order.status}
+                                </Badge>
+                                <span className="font-medium">Order {order.orderId}</span>
+                              </div>
+                              <span className="font-bold">{formatCurrency(order.totalAmount)}</span>
+                            </div>
+                              <div className="text-sm text-gray-600 mb-3">
+                              <p>Customer: {order.customerName || 'N/A'}</p>
+                              <p>Assigned to Junior Baker</p>
+                              <p>Deadline: {format(new Date(order.deadline), 'PPp')}</p>
+                            </div>
+
+                            <Badge variant="outline" className="bg-green-100">
+                              <Users className="h-3 w-3 mr-1" />
+                              Assigned to Junior Baker
+                            </Badge>
+                          </div>
+                        ))}
+                        
+                        {orders?.filter(order => order.juniorBakerId).length === 0 && (
+                          <div className="text-center py-4 text-gray-500 text-sm">
+                            No orders assigned to junior bakers
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 )}
               </CardContent>
@@ -444,36 +531,77 @@ export default function MainBakerDashboard() {
             setSelectedOrder(null);
             setSelectedJuniorBaker("");
             setSelectedDeadline("");
+            setTakeOrderMyself(false);
           }
         }}>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
-              <DialogTitle>Assign Order to Junior Baker</DialogTitle>
+              <DialogTitle>Manage Order Assignment</DialogTitle>
               <DialogDescription>
-                Select a junior baker to handle order {selectedOrder?.orderId}
+                Choose how to handle order {selectedOrder?.orderId}
               </DialogDescription>
             </DialogHeader>
-              <div className="grid gap-4 py-4">
+            
+            <div className="grid gap-4 py-4">
+              {/* Option to take order myself */}
               <div className="space-y-2">
-                <Label htmlFor="junior-baker">Select Junior Baker</Label>
-                <Select value={selectedJuniorBaker} onValueChange={setSelectedJuniorBaker}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a junior baker" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {juniorBakers?.map((baker) => (
-                      <SelectItem key={baker.id} value={baker.id.toString()}>
-                        <div className="flex items-center gap-2">
-                          <span>{baker.fullName}</span>
-                          <span className="text-sm text-gray-500">
-                            ({baker.completedOrders} completed)
-                          </span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Assignment Option</Label>
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="radio"
+                      id="take-myself"
+                      name="assignment-option"
+                      checked={takeOrderMyself}
+                      onChange={() => {
+                        setTakeOrderMyself(true);
+                        setSelectedJuniorBaker("");
+                      }}
+                      className="h-4 w-4"
+                    />
+                    <label htmlFor="take-myself" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                      Take this order myself
+                    </label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="radio"
+                      id="assign-junior"
+                      name="assignment-option"
+                      checked={!takeOrderMyself}
+                      onChange={() => setTakeOrderMyself(false)}
+                      className="h-4 w-4"
+                    />
+                    <label htmlFor="assign-junior" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                      Assign to a junior baker
+                    </label>
+                  </div>
+                </div>
               </div>
+
+              {/* Junior Baker Selection - only show if not taking myself */}
+              {!takeOrderMyself && (
+                <div className="space-y-2">
+                  <Label htmlFor="junior-baker">Select Junior Baker</Label>
+                  <Select value={selectedJuniorBaker} onValueChange={setSelectedJuniorBaker}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a junior baker" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {juniorBakers?.map((baker) => (
+                        <SelectItem key={baker.id} value={baker.id.toString()}>
+                          <div className="flex items-center gap-2">
+                            <span>{baker.fullName}</span>
+                            <span className="text-sm text-gray-500">
+                              ({baker.completedOrders} completed)
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               
               <div className="space-y-2">
                 <Label htmlFor="deadline">Custom Deadline (Optional)</Label>
@@ -503,8 +631,7 @@ export default function MainBakerDashboard() {
                 </div>
               )}
             </div>
-            
-            <DialogFooter>
+              <DialogFooter>
               <Button 
                 variant="outline" 
                 onClick={() => setIsAssignDialogOpen(false)}
@@ -514,12 +641,12 @@ export default function MainBakerDashboard() {
               </Button>
               <Button 
                 onClick={handleConfirmAssignment}
-                disabled={assignOrderMutation.isPending || !selectedJuniorBaker}
+                disabled={assignOrderMutation.isPending || (!takeOrderMyself && !selectedJuniorBaker)}
               >
                 {assignOrderMutation.isPending && (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 )}
-                Assign Order
+                {takeOrderMyself ? "Take Order" : "Assign Order"}
               </Button>
             </DialogFooter>
           </DialogContent>

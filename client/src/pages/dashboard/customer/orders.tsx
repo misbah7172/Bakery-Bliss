@@ -9,8 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Package, Clock, ShoppingCart, Check, X, MessageCircle } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { Link } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getQueryFn } from "@/lib/queryClient";
+import { ReviewModal } from "@/components/ui/review-modal";
 
 // Mock data for orders until backend connected
 interface OrderItem {
@@ -40,6 +41,12 @@ const CustomerOrdersPage = () => {
   const { user } = useAuth();
   const [, navigate] = useLocation();
   const [activeTab, setActiveTab] = useState("all");
+  const [reviewModal, setReviewModal] = useState<{ isOpen: boolean; orderId: number; orderNumber: string }>({
+    isOpen: false,
+    orderId: 0,
+    orderNumber: ""
+  });
+  const queryClient = useQueryClient();
 
   // Redirect if not authenticated or not a customer
   if (!user) {
@@ -48,9 +55,24 @@ const CustomerOrdersPage = () => {
   }
   
   if (user.role !== "customer") {
-    navigate("/");
+    navigate("/dashboard");
     return null;
   }
+
+  // Handler for opening review modal
+  const handleMarkAsDelivered = (orderId: number, orderNumber: string) => {
+    setReviewModal({
+      isOpen: true,
+      orderId,
+      orderNumber
+    });
+  };
+
+  // Handler for successful review submission
+  const handleReviewSuccess = () => {
+    // Refresh orders data
+    queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+  };
 
   // Status color and label mapping
   const orderStatusMap: Record<string, { color: string; label: string }> = {
@@ -195,7 +217,11 @@ const CustomerOrdersPage = () => {
                       </div>
                       <div className="mt-4 flex justify-end gap-2">
                         {order.status === "ready" && (
-                          <Button variant="outline" size="sm">
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => handleMarkAsDelivered(order.id, order.orderId)}
+                          >
                             <Check className="mr-2 h-4 w-4" />
                             Mark as Delivered
                           </Button>
@@ -221,6 +247,15 @@ const CustomerOrdersPage = () => {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Review Modal */}
+      <ReviewModal
+        isOpen={reviewModal.isOpen}
+        onClose={() => setReviewModal({ isOpen: false, orderId: 0, orderNumber: "" })}
+        orderId={reviewModal.orderId}
+        orderNumber={reviewModal.orderNumber}
+        onSuccess={handleReviewSuccess}
+      />
     </AppLayout>
   );
 };
