@@ -1,0 +1,13 @@
+{
+  "name": "pdf-generator",
+  "version": "1.0.0",
+  "description": "Generate PDF from markdown documentation",
+  "main": "generate-pdf.js",
+  "scripts": {
+    "generate-pdf": "node generate-pdf.js"
+  },
+  "dependencies": {
+    "puppeteer": "^21.0.0",
+    "marked": "^9.0.0"
+  }
+}
