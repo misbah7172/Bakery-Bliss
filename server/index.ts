@@ -15,6 +15,9 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
+// Serve static design files
+app.use('/design', express.static('client/design'));
+
 // Session middleware
 app.use(session({
   secret: process.env.SESSION_SECRET || 'bakery-bliss-session-secret',

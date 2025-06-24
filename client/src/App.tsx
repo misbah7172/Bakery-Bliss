@@ -5,7 +5,7 @@ import { Loader2 } from "lucide-react";
 // Page components with lazy loading
 const Home = lazy(() => import("@/pages/home"));
 const Products = lazy(() => import("@/pages/products"));
-const CakeBuilder = lazy(() => import("@/pages/cake-builder"));
+const CustomCakeBuilder = lazy(() => import("@/pages/custom-cake-builder"));
 const DashboardCustomer = lazy(() => import("@/pages/dashboard-customer"));
 const DashboardJuniorBaker = lazy(() => import("@/pages/dashboard-junior-baker"));
 const DashboardMainBaker = lazy(() => import("@/pages/dashboard-main-baker"));
@@ -61,11 +61,10 @@ const PageLoader = () => (
 function App() {
   return (
     <Suspense fallback={<PageLoader />}>
-      <Switch>
-        {/* Main pages */}
+      <Switch>        {/* Main pages */}
         <Route path="/" component={Home} />
         <Route path="/products" component={Products} />
-        <Route path="/cake-builder" component={CakeBuilder} />
+        <Route path="/custom-cake-builder" component={CustomCakeBuilder} />
         <Route path="/login" component={Login} />
         <Route path="/register" component={Register} />
         <Route path="/about" component={About} />

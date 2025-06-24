@@ -1014,6 +1014,45 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  async getMainBakersWithStats(): Promise<any[]> {
+    try {
+      const mainBakers = await db.select({
+        id: users.id,
+        fullName: users.fullName,
+        email: users.email,
+        profileImage: users.profileImage,
+        completedOrders: users.completedOrders,
+        createdAt: users.createdAt
+      })
+      .from(users)
+      .where(eq(users.role, 'main_baker'));
+
+      // Get team size for each main baker
+      const bakersWithStats = await Promise.all(
+        mainBakers.map(async (baker) => {
+          const teamMembers = await this.getJuniorBakersByMainBaker(baker.id);
+          const averageRating = await this.getBakerAverageRating(baker.id);
+          
+          return {
+            id: baker.id,
+            fullName: baker.fullName,
+            email: baker.email,
+            profileImage: baker.profileImage,
+            completedOrders: baker.completedOrders || 0,
+            teamSize: teamMembers.length,
+            averageRating: averageRating || 0,
+            joinedAt: baker.createdAt
+          };
+        })
+      );
+
+      return bakersWithStats;
+    } catch (error) {
+      console.error('Error fetching main bakers with stats:', error);
+      throw error;
+    }
+  }
+
   // Get all junior bakers
   async getJuniorBakers(): Promise<User[]> {
     try {

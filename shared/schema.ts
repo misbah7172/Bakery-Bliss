@@ -77,10 +77,21 @@ export const customCakes = pgTable("custom_cakes", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").references(() => users.id),
   name: text("name"),
+  
+  // Legacy cake builder fields (optional for backwards compatibility)
   shapeId: integer("shape_id").references(() => cakeShapes.id),
   flavorId: integer("flavor_id").references(() => cakeFlavors.id),
   frostingId: integer("frosting_id").references(() => cakeFrostings.id),
   decorationId: integer("decoration_id").references(() => cakeDecorations.id),
+  
+  // New design-based fields
+  layers: text("layers"), // e.g., "2layer", "3layer"
+  color: text("color"), // e.g., "pink", "green", "red"
+  sideDesign: text("side_design"), // e.g., "butterfly", "strawberry"
+  upperDesign: text("upper_design"), // e.g., "rose", "butterfly"
+  pounds: real("pounds").notNull(), // Weight in pounds (e.g., 1.5, 2.0, 3.0)
+  designKey: text("design_key"), // Generated key for design lookup
+  
   message: text("message"),
   specialInstructions: text("special_instructions"),
   totalPrice: real("total_price").notNull(),

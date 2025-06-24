@@ -166,41 +166,32 @@ export const customCakes = pgTable("custom_cakes", {
 	id: serial().primaryKey().notNull(),
 	userId: integer("user_id"),
 	name: text(),
+	
+	// Legacy cake builder fields (optional for backwards compatibility)
 	shapeId: integer("shape_id"),
 	flavorId: integer("flavor_id"),
 	frostingId: integer("frosting_id"),
 	decorationId: integer("decoration_id"),
+	
+	// New design-based fields
+	layers: text(),
+	color: text(),
+	sideDesign: text("side_design"),
+	upperDesign: text("upper_design"),
+	pounds: real(),
+	designKey: text("design_key"),
+	
 	message: text(),
 	specialInstructions: text("special_instructions"),
 	totalPrice: real("total_price").notNull(),
+	mainBakerId: integer("main_baker_id"),
 	createdAt: timestamp("created_at", { mode: 'string' }).defaultNow(),
 	isSaved: boolean("is_saved").default(false),
-	mainBakerId: integer("main_baker_id"),
 }, (table) => [
 	foreignKey({
 			columns: [table.userId],
 			foreignColumns: [users.id],
 			name: "custom_cakes_user_id_users_id_fk"
-		}),
-	foreignKey({
-			columns: [table.decorationId],
-			foreignColumns: [cakeDecorations.id],
-			name: "custom_cakes_decoration_id_cake_decorations_id_fk"
-		}),
-	foreignKey({
-			columns: [table.flavorId],
-			foreignColumns: [cakeFlavors.id],
-			name: "custom_cakes_flavor_id_cake_flavors_id_fk"
-		}),
-	foreignKey({
-			columns: [table.frostingId],
-			foreignColumns: [cakeFrostings.id],
-			name: "custom_cakes_frosting_id_cake_frostings_id_fk"
-		}),
-	foreignKey({
-			columns: [table.shapeId],
-			foreignColumns: [cakeShapes.id],
-			name: "custom_cakes_shape_id_cake_shapes_id_fk"
 		}),
 	foreignKey({
 			columns: [table.mainBakerId],

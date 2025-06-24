@@ -33,12 +33,10 @@ const Navbar = () => {
     e.preventDefault();
     console.log("Searching for:", searchQuery);
     // Implementation for search would go here
-  };
-  
-  const navLinks = [
+  };    const navLinks = [
     { label: "Home", href: "/" },
     { label: "Products", href: "/products" },
-    { label: "Custom Cakes", href: "/cake-builder" },
+    { label: "Custom Cake Builder", href: "/custom-cake-builder" },
     { label: "About", href: "/about" },
     { label: "Contact", href: "/contact" },
   ];

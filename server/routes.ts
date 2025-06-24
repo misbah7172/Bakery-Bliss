@@ -5,7 +5,7 @@ import bcrypt from "bcryptjs";
 import session from "express-session";
 import { z } from "zod";
 import { db } from "./db";
-import { orders, orderItems, products, customCakes } from "../drizzle/schema";
+import { orders, orderItems, products, customCakes, users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import {
   insertUserSchema,
@@ -319,68 +319,120 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Internal server error" });
     }
   });
-
-  // ===== CAKE BUILDER ROUTES =====
+  // ===== CUSTOM CAKE BUILDER ROUTES =====
   
-  // Get cake shapes
-  app.get("/api/cake-builder/shapes", async (req, res) => {
+  // Get available design options for custom cake builder
+  app.get("/api/cake-builder/options", async (req, res) => {
     try {
-      const shapes = await storage.getAllCakeShapes();
-      res.json(shapes);
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      
+      const designPath = path.join(process.cwd(), 'client', 'design');
+      
+      // Read available options from design folders
+      const [layers, colors, sideDesigns, upperDesigns] = await Promise.all([
+        fs.readdir(path.join(designPath, 'layer')).then((files: string[]) => 
+          files.filter((f: string) => f.endsWith('.jpeg')).map((f: string) => f.replace('.jpeg', ''))
+        ).catch(() => []),
+        fs.readdir(path.join(designPath, 'color')).then((files: string[]) => 
+          files.filter((f: string) => f.endsWith('.jpeg')).map((f: string) => f.replace('.jpeg', ''))
+        ).catch(() => []),
+        fs.readdir(path.join(designPath, 'side_design')).then((files: string[]) => 
+          files.filter((f: string) => f.endsWith('.jpeg')).map((f: string) => f.replace('.jpeg', ''))
+        ).catch(() => []),
+        fs.readdir(path.join(designPath, 'upper_design')).then((files: string[]) => 
+          files.filter((f: string) => f.endsWith('.jpeg')).map((f: string) => f.replace('.jpeg', ''))
+        ).catch(() => [])
+      ]);
+      
+      res.json({
+        layers,
+        colors,
+        sideDesigns,
+        upperDesigns
+      });
     } catch (error) {
+      console.error('Error loading design options:', error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });  // Check if design combination exists and return preview image
+  app.get("/api/cake-builder/preview", async (req, res) => {
+    try {
+      const { key } = req.query;
+      
+      if (!key || typeof key !== 'string') {
+        return res.status(400).json({ message: "Design key is required" });
+      }
+      
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      
+      // The design key format is: color_layers_sideDesign_upperDesign
+      // Example: pink_3layer_butterfly_rose
+      const designPath = path.join(process.cwd(), 'client', 'design');
+      const imagePath = path.join(designPath, 'combinations', `${key}.jpeg`);
+      const fallbackPath = path.join(designPath, 'fallback.jpeg');
+      
+      try {
+        // Check if the specific combination image exists
+        await fs.access(imagePath);
+        res.json({
+          available: true,
+          imageUrl: `/design/combinations/${key}.jpeg`
+        });
+      } catch {
+        // Check if fallback image exists
+        try {
+          await fs.access(fallbackPath);
+          res.json({
+            available: false,
+            fallbackUrl: `/design/fallback.jpeg`
+          });
+        } catch {
+          res.json({
+            available: false,
+            fallbackUrl: null
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error checking design preview:', error);
       res.status(500).json({ message: "Internal server error" });
     }
   });
-
-  // Get cake flavors
-  app.get("/api/cake-builder/flavors", async (req, res) => {
-    try {
-      const flavors = await storage.getAllCakeFlavors();
-      res.json(flavors);
-    } catch (error) {
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  // Get cake frostings
-  app.get("/api/cake-builder/frostings", async (req, res) => {
-    try {
-      const frostings = await storage.getAllCakeFrostings();
-      res.json(frostings);
-    } catch (error) {
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  // Get cake decorations
-  app.get("/api/cake-builder/decorations", async (req, res) => {
-    try {
-      const decorations = await storage.getAllCakeDecorations();
-      res.json(decorations);
-    } catch (error) {
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
   // Create custom cake
   app.post("/api/cake-builder", authenticate, async (req, res) => {
     try {
-      const cakeData = insertCustomCakeSchema.parse(req.body);
+      const cakeData = req.body;
       
-      // Add user id
+      // Validate required fields
+      if (!cakeData.layers || !cakeData.color || !cakeData.sideDesign || !cakeData.upperDesign || !cakeData.pounds || !cakeData.mainBakerId) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+      
+      // Create custom cake with new schema
       const customCake = await storage.createCustomCake({
-        ...cakeData,
-        userId: req.user.id
+        userId: req.user!.id,
+        name: cakeData.name,
+        layers: cakeData.layers,
+        color: cakeData.color,
+        sideDesign: cakeData.sideDesign,
+        upperDesign: cakeData.upperDesign,
+        pounds: parseFloat(cakeData.pounds),
+        designKey: cakeData.designKey,
+        message: cakeData.message,
+        specialInstructions: cakeData.specialInstructions,
+        totalPrice: parseFloat(cakeData.totalPrice),
+        mainBakerId: parseInt(cakeData.mainBakerId),
+        isSaved: false
       });
       
       res.status(201).json(customCake);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid input", errors: error.errors });
-      }
+      console.error('Error creating custom cake:', error);
       res.status(500).json({ message: "Internal server error" });
     }
-  });  // ===== ORDER ROUTES =====
+  });// ===== ORDER ROUTES =====
     // Get user's orders
   app.get("/api/orders", authenticate, async (req, res) => {
     try {
@@ -899,24 +951,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Internal server error" });
     }
   });
-
-  // Get all main bakers (for junior baker applications)
-  app.get("/api/users/main-bakers", async (req, res) => {
+  // Get all main bakers (for junior baker applications and cake builder)
+  app.get("/api/main-bakers", async (req, res) => {
     try {
-      const mainBakers = await storage.getUsersWithRole('main_baker');
-      
-      // Get junior baker counts for each main baker
-      const bakersWithCounts = await Promise.all(
-        mainBakers.map(async (baker) => {
-          const juniorBakers = await storage.getJuniorBakersByMainBaker(baker.id);
-          return {
-            ...baker,
-            juniorBakers: juniorBakers.length
-          };
-        })
-      );
-      
-      res.json(bakersWithCounts);
+      const mainBakers = await storage.getMainBakersWithStats();
+      res.json(mainBakers);
     } catch (error) {
       console.error("Error fetching main bakers:", error);
       res.status(500).json({ message: "Internal server error" });
@@ -1149,22 +1188,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const mainBakers = await storage.getUsersWithRole('main_baker');
       
-      // Get team size for each main baker (count of junior bakers assigned to them)
-      const bakersWithTeamSize = await Promise.all(
+      // Get junior baker counts for each main baker
+      const bakersWithCounts = await Promise.all(
         mainBakers.map(async (baker) => {
-          const teamMembers = await storage.getJuniorBakersByMainBaker(baker.id);
+          const juniorBakers = await storage.getJuniorBakersByMainBaker(baker.id);
           return {
-            id: baker.id,
-            fullName: baker.fullName,
-            email: baker.email,
-            completedOrders: baker.completedOrders || 0,
-            profileImage: baker.profileImage,
-            teamSize: teamMembers.length
+            ...baker,
+            juniorBakers: juniorBakers.length
           };
         })
       );
       
-      res.json(bakersWithTeamSize);
+      res.json(bakersWithCounts);
     } catch (error) {
       console.error("Error fetching main bakers:", error);
       res.status(500).json({ message: "Internal server error" });
