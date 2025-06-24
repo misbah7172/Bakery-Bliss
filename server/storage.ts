@@ -45,7 +45,10 @@ export interface IStorage {
   getOrderById(id: number): Promise<Order | undefined>;
   getOrderWithDetails(id: number): Promise<any>;
   getOrdersByUserId(userId: number): Promise<Order[]>;
-  getOrdersWithDetailsByUserId(userId: number): Promise<any[]>;
+  getOrdersWithDetailsByUserId(userId: number): Promise<any[]>;  getOrdersByJuniorBaker(juniorBakerId: number): Promise<any[]>; // New method for tasks
+  getOrdersByJuniorBakerWithCustomerInfo(juniorBakerId: number): Promise<any[]>; // For chat feature
+  getCustomerOrdersForChat(customerId: number): Promise<any[]>; // For customer chat
+  assignOrderToJuniorBaker(orderId: number, juniorBakerId: number, deadline?: string): Promise<Order | undefined>; // Updated signature
   addOrderItem(item: InsertOrderItem): Promise<OrderItem>;
   getUserOrders(userId: number): Promise<Order[]>;
   getUserOrdersWithDetails(userId: number): Promise<any[]>;
@@ -54,7 +57,6 @@ export interface IStorage {
   getAllOrders(): Promise<Order[]>;
   getOrderByOrderId(orderId: string): Promise<any>;
   updateOrderStatus(orderId: number, status: "pending" | "processing" | "quality_check" | "ready" | "delivered" | "cancelled"): Promise<Order | undefined>;
-  assignOrderToJuniorBaker(orderId: number, juniorBakerId: number): Promise<Order | undefined>;
   deleteOrder(orderId: number): Promise<void>;
   
   // Chat methods
@@ -100,9 +102,10 @@ export interface IStorage {
   deleteUser(userId: number): Promise<void>;
   updateProduct(productId: number, updateData: any): Promise<Product>;
   deleteProduct(productId: number): Promise<void>;
-
   // Get all junior bakers
   getJuniorBakers(): Promise<User[]>;
+  getCustomCakeById(customCakeId: number): Promise<CustomCake | null>;
+  getCurrentOrdersCountForBaker(bakerId: number): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -153,7 +156,10 @@ export class DatabaseStorage implements IStorage {
   }
   
   async getProductsByMainBaker(mainBakerId: number): Promise<Product[]> {
-    return await db.select().from(products).where(eq(products.mainBakerId, mainBakerId));
+    return await db.select()
+      .from(products)
+      .where(eq(products.mainBakerId, mainBakerId))
+      .orderBy(products.createdAt);
   }
 
   async createProduct(productData: InsertProduct): Promise<Product> {
@@ -419,6 +425,81 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(orders.createdAt));
   }
 
+  // Get orders assigned to junior baker with detailed task information
+  async getOrdersByJuniorBaker(juniorBakerId: number): Promise<any[]> {    // Get orders assigned to this junior baker with shipping info
+    const ordersWithShipping = await db.select({
+      id: orders.id,
+      orderId: orders.orderId,
+      status: orders.status,
+      totalAmount: orders.totalAmount,
+      deadline: orders.deadline,
+      createdAt: orders.createdAt,
+      userId: orders.userId,
+      customerName: shippingInfo.fullName,
+      customerEmail: shippingInfo.email,
+      address: shippingInfo.address,
+      city: shippingInfo.city,
+      state: shippingInfo.state,
+      zipCode: shippingInfo.zipCode,
+      phone: shippingInfo.phone,
+      paymentMethod: shippingInfo.paymentMethod,
+    })
+    .from(orders)
+    .leftJoin(shippingInfo, eq(orders.id, shippingInfo.orderId))
+    .where(eq(orders.juniorBakerId, juniorBakerId))
+    .orderBy(orders.deadline, orders.createdAt);
+    
+    // Get order items for each order
+    const tasksWithItems = await Promise.all(
+      ordersWithShipping.map(async (order) => {
+        const items = await db.select({
+          id: orderItems.id,
+          productId: orderItems.productId,
+          customCakeId: orderItems.customCakeId,
+          quantity: orderItems.quantity,
+          pricePerItem: orderItems.pricePerItem,
+          productName: products.name,
+          productDescription: products.description,
+        })
+        .from(orderItems)
+        .leftJoin(products, eq(orderItems.productId, products.id))
+        .where(eq(orderItems.orderId, order.id));
+        
+        // Calculate priority based on deadline
+        const priority = order.deadline ? 
+          (new Date(order.deadline).getTime() < Date.now() + 24 * 60 * 60 * 1000 ? 'high' : 
+           new Date(order.deadline).getTime() < Date.now() + 72 * 60 * 60 * 1000 ? 'medium' : 'low') 
+          : 'low';        return {
+          id: order.id,
+          orderId: order.orderId,
+          status: order.status,
+          totalAmount: order.totalAmount,
+          deadline: order.deadline,
+          createdAt: order.createdAt,
+          userId: order.userId || 0,
+          userName: order.customerName || 'Unknown Customer',
+          userEmail: order.customerEmail || '',
+          items: items.map(item => ({
+            id: item.id,
+            productName: item.productName || undefined,
+            customCakeName: item.productName ? undefined : 'Custom Cake',
+            quantity: item.quantity,
+            pricePerItem: item.pricePerItem,
+          })),
+          shippingInfo: order.address ? {
+            fullName: order.customerName || '',
+            address: order.address,
+            city: order.city || '',
+            state: order.state || '',
+            zipCode: order.zipCode || '',
+          } : undefined,
+        };
+      })
+    );
+    
+    return tasksWithItems;
+  }
+  
   async getAllOrders(): Promise<Order[]> {
     return await db.select().from(orders).orderBy(desc(orders.createdAt));
   }
@@ -433,17 +514,25 @@ export class DatabaseStorage implements IStorage {
       .returning();
     return order;
   }
-
-  async assignOrderToJuniorBaker(orderId: number, juniorBakerId: number): Promise<Order | undefined> {    // Get the order to check if it already has a chat
+  async assignOrderToJuniorBaker(orderId: number, juniorBakerId: number, deadline?: string): Promise<Order | undefined> {
+    // Get the order to check if it already has a chat
     const [existingOrder] = await db.select().from(orders).where(eq(orders.id, orderId));
     
-    // Update the order with the junior baker ID
+    // Prepare update data
+    const updateData: any = {
+      juniorBakerId, 
+      status: 'pending', // Set to pending when assigned
+      updatedAt: new Date()
+    };
+    
+    // Add deadline if provided
+    if (deadline) {
+      updateData.deadline = new Date(deadline);
+    }
+    
+    // Update the order with the junior baker ID and optional deadline
     const [order] = await db.update(orders)
-      .set({ 
-        juniorBakerId, 
-        status: 'processing', // Automatically update status to processing
-        updatedAt: new Date() 
-      })
+      .set(updateData)
       .where(eq(orders.id, orderId))
       .returning();
     
@@ -512,38 +601,52 @@ export class DatabaseStorage implements IStorage {
     return result.map(row => ({
       ...row,
       userName: row.userName || 'Unknown User'
-    }));
-  }
+    }));  }
+  
   async initializeChatForOrder(orderId: number): Promise<void> {
-    // Get order details to determine participants
-    const order = await this.getOrderByOrderId(orderId.toString());
-    if (!order) return;
+    try {
+      console.log('🔄 Initializing chat for order ID:', orderId);
+      // Get order details to determine participants
+      const order = await this.getOrderById(orderId);
+      if (!order) {
+        console.log('❌ Order not found for chat initialization:', orderId);
+        return;
+      }
+      console.log('📦 Order found for chat initialization:', JSON.stringify(order, null, 2));
 
-    // Add customer as participant
-    if (order.userId) {
-      await db.insert(chatParticipants).values({
-        orderId,
-        userId: order.userId,
-        role: 'customer'
-      }).onConflictDoNothing();
-    }
+      // Add customer as participant
+      if (order.userId) {
+        console.log('➕ Adding customer as chat participant:', order.userId);
+        await db.insert(chatParticipants).values({
+          orderId,
+          userId: order.userId,
+          role: 'customer'
+        }).onConflictDoNothing();
+      }
 
-    // Add junior baker as participant if assigned
-    if (order.juniorBakerId) {
-      await db.insert(chatParticipants).values({
-        orderId,
-        userId: order.juniorBakerId,
-        role: 'junior_baker'
-      }).onConflictDoNothing();
-    }
+      // Add junior baker as participant if assigned
+      if (order.juniorBakerId) {
+        console.log('➕ Adding junior baker as chat participant:', order.juniorBakerId);
+        await db.insert(chatParticipants).values({
+          orderId,
+          userId: order.juniorBakerId,
+          role: 'junior_baker'
+        }).onConflictDoNothing();
+      }
 
-    // Add main baker as participant if assigned
-    if (order.mainBakerId) {
-      await db.insert(chatParticipants).values({
-        orderId,
-        userId: order.mainBakerId,
-        role: 'main_baker'
-      }).onConflictDoNothing();
+      // Add main baker as participant if assigned
+      if (order.mainBakerId) {
+        console.log('➕ Adding main baker as chat participant:', order.mainBakerId);
+        await db.insert(chatParticipants).values({
+          orderId,
+          userId: order.mainBakerId,
+          role: 'main_baker'
+        }).onConflictDoNothing();
+      }
+      console.log('✅ Chat initialization completed for order:', orderId);
+    } catch (error) {
+      console.error('❌ Error initializing chat for order:', orderId, error);
+      throw error;
     }
   }
   async markChatsAsRead(chatIds: number[]): Promise<void> {
@@ -612,8 +715,7 @@ export class DatabaseStorage implements IStorage {
     const [team] = await db.insert(bakerTeams).values(teamData).returning();
     return team;
   }  async getJuniorBakersByMainBaker(mainBakerId: number): Promise<User[]> {
-    const result = await db.select()
-      .from(bakerTeams)
+    const result = await db.select()      .from(bakerTeams)
       .innerJoin(users, eq(bakerTeams.juniorBakerId, users.id))
       .where(and(
         eq(bakerTeams.mainBakerId, mainBakerId),
@@ -1113,6 +1215,130 @@ export class DatabaseStorage implements IStorage {
         eq(users.role, 'junior_baker'),
         notInArray(users.id, assignedIds)
       ));
+  }
+  // Get custom cake by ID
+  async getCustomCakeById(customCakeId: number): Promise<CustomCake | null> {
+    const [customCake] = await db.select()
+      .from(customCakes)
+      .where(eq(customCakes.id, customCakeId));
+    
+    return customCake || null;
+  }
+
+  // Get current orders count for a baker
+  async getCurrentOrdersCountForBaker(bakerId: number): Promise<number> {
+    const result = await db.select({ count: sql<number>`COUNT(*)` })
+      .from(orders)
+      .where(
+        and(
+          eq(orders.juniorBakerId, bakerId),
+          notInArray(orders.status, ['delivered', 'cancelled'])
+        )
+      );
+    
+    return result[0]?.count || 0;
+  }
+
+  // Get customer orders with baker info for chat
+  async getCustomerOrdersForChat(customerId: number): Promise<any[]> {
+    const customerOrders = await db.select({
+      id: orders.id,
+      orderNumber: orders.orderId,
+      status: orders.status,
+      total: orders.totalAmount,
+      createdAt: orders.createdAt,
+      juniorBakerId: orders.juniorBakerId,
+      assignedBaker: users.fullName,
+    })
+    .from(orders)
+    .leftJoin(users, eq(orders.juniorBakerId, users.id))
+    .where(eq(orders.userId, customerId))
+    .orderBy(desc(orders.createdAt));
+
+    // Get order items for each order
+    const ordersWithItems = await Promise.all(
+      customerOrders.map(async (order) => {
+        const items = await db.select({
+          id: orderItems.id,
+          productId: orderItems.productId,
+          customCakeId: orderItems.customCakeId,
+          quantity: orderItems.quantity,
+          pricePerItem: orderItems.pricePerItem,
+          productName: products.name,
+          productDescription: products.description,
+        })
+        .from(orderItems)
+        .leftJoin(products, eq(orderItems.productId, products.id))
+        .where(eq(orderItems.orderId, order.id));
+
+        return {
+          ...order,
+          items: items.map(item => ({
+            id: item.id,
+            productId: item.productId,
+            customCakeId: item.customCakeId,
+            quantity: item.quantity,
+            pricePerItem: item.pricePerItem,
+            productName: item.productName || 'Custom Cake',
+            productDescription: item.productDescription || 'Custom cake design',
+          })),
+        };
+      })
+    );
+
+    return ordersWithItems;
+  }
+
+  // Get orders assigned to junior baker with customer info for chat
+  async getOrdersByJuniorBakerWithCustomerInfo(juniorBakerId: number): Promise<any[]> {
+    const ordersWithCustomer = await db.select({
+      id: orders.id,
+      orderNumber: orders.orderId,
+      status: orders.status,
+      total: orders.totalAmount,
+      createdAt: orders.createdAt,
+      deadline: orders.deadline,
+      customerId: orders.userId,
+      customerName: users.fullName,
+      customerEmail: users.email,
+    })
+    .from(orders)
+    .leftJoin(users, eq(orders.userId, users.id))
+    .where(eq(orders.juniorBakerId, juniorBakerId))
+    .orderBy(desc(orders.createdAt));
+
+    // Get order items for each order
+    const ordersWithItems = await Promise.all(
+      ordersWithCustomer.map(async (order) => {
+        const items = await db.select({
+          id: orderItems.id,
+          productId: orderItems.productId,
+          customCakeId: orderItems.customCakeId,
+          quantity: orderItems.quantity,
+          pricePerItem: orderItems.pricePerItem,
+          productName: products.name,
+          productDescription: products.description,
+        })
+        .from(orderItems)
+        .leftJoin(products, eq(orderItems.productId, products.id))
+        .where(eq(orderItems.orderId, order.id));
+
+        return {
+          ...order,
+          items: items.map(item => ({
+            id: item.id,
+            productId: item.productId,
+            customCakeId: item.customCakeId,
+            quantity: item.quantity,
+            pricePerItem: item.pricePerItem,
+            productName: item.productName || 'Custom Cake',
+            productDescription: item.productDescription || 'Custom cake design',
+          })),
+        };
+      })
+    );
+
+    return ordersWithItems;
   }
 }
 

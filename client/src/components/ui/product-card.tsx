@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { ShoppingCart, Star, StarHalf } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useCart } from "@/hooks/use-cart";
+import { useAuth } from "@/hooks/use-auth";
 import { Product } from "@shared/schema";
 
 interface ProductCardProps {
@@ -12,6 +13,7 @@ interface ProductCardProps {
 
 const ProductCard = ({ product }: ProductCardProps) => {
   const { addToCart } = useCart();
+  const { user } = useAuth();
   const [isHovered, setIsHovered] = useState(false);
   
   // Random rating for display - in a real app this would come from a database
@@ -61,14 +63,15 @@ const ProductCard = ({ product }: ProductCardProps) => {
         </div>
         <p className="text-sm text-foreground/70 line-clamp-2 min-h-[40px]">{product.description}</p>
       </CardContent>
-      
-      <CardFooter className="p-4 pt-0">
-        <Button 
-          className="w-full" 
-          onClick={() => addToCart(product)}
-        >
-          <ShoppingCart className="mr-2 h-4 w-4" /> Add to Cart
-        </Button>
+        <CardFooter className="p-4 pt-0">
+        {(!user || user.role === "customer") && (
+          <Button 
+            className="w-full" 
+            onClick={() => addToCart(product)}
+          >
+            <ShoppingCart className="mr-2 h-4 w-4" /> Add to Cart
+          </Button>
+        )}
       </CardFooter>
     </Card>
   );

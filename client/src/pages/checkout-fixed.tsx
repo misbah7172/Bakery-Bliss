@@ -22,7 +22,7 @@ interface CheckoutFormData {
 
 export default function CheckoutPage() {
   const [, setLocation] = useLocation();
-  const { user, token } = useAuth();
+  const { user } = useAuth();
   const { cartItems, cartTotal, clearCart } = useCart();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -35,11 +35,16 @@ export default function CheckoutPage() {
     state: "",
     zipCode: "",
     paymentMethod: "cash",
-  });
-
-  useEffect(() => {
-    if (!user || !token) {
+  });  useEffect(() => {
+    if (!user) {
       setLocation("/login");
+      return;
+    }
+
+    // Only customers can access checkout
+    if (user.role !== "customer") {
+      toast.error("Access denied: Only customers can checkout");
+      setLocation("/");
       return;
     }
 
@@ -47,7 +52,7 @@ export default function CheckoutPage() {
       setLocation("/products");
       return;
     }
-  }, [user, token, cartItems, setLocation]);
+  }, [user, cartItems, setLocation]);
 
   const handleInputChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
@@ -58,12 +63,11 @@ export default function CheckoutPage() {
       [name]: value,
     }));
   };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
 
-    if (!token) {
+    if (!user) {
       toast.error("Please log in to place an order");
       setLocation("/login");
       return;
@@ -119,8 +123,7 @@ export default function CheckoutPage() {
       setIsSubmitting(false);
     }
   };
-
-  if (!user || !token || cartItems.length === 0) {
+  if (!user || cartItems.length === 0) {
     return null;
   }
 

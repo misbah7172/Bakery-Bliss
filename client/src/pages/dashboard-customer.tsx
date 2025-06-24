@@ -29,9 +29,14 @@ const CustomerDashboard = () => {
   const { user } = useAuth();
   const [, navigate] = useLocation();
   
-  // Redirect if not authenticated
+  // Redirect if not authenticated or not a customer
   if (!user) {
-    navigate("/login");
+    navigate("/");
+    return null;
+  }
+  
+  if (user.role !== "customer") {
+    navigate("/");
     return null;
   }
   

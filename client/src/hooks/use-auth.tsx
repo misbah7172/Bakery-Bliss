@@ -188,8 +188,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setLoading(false);
     }
-  };
-    const logout = async () => {
+  };    const logout = async () => {
     try {
       // Call logout endpoint to destroy session
       await fetch("/api/auth/logout", {
@@ -207,6 +206,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       description: "You have been logged out successfully.",
     });
     
+    // Replace current history entry and navigate to home
+    // This prevents users from going back to protected pages
+    window.history.replaceState(null, "", "/");
     navigate("/");
   };
   

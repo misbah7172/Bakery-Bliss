@@ -15,17 +15,9 @@ async function throwIfResNotOk(res: Response) {
 }
 
 export const apiRequest = async (url: string, method: string = "GET", data?: any) => {
-  console.log('Making API request:', {
-    method,
-    url,
-    hasData: !!data
-  });
-  
   const headers: HeadersInit = {
     "Content-Type": "application/json",
   };
-
-  console.log('Request headers:', headers);
 
   const response = await fetch(url, {
     method,
@@ -54,15 +46,9 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    console.log('Making query request:', {
-      url: queryKey[0]
-    });
-    
     const headers: HeadersInit = {
       "Content-Type": "application/json",
     };
-
-    console.log('Request headers:', headers);
 
     const res = await fetch(queryKey[0] as string, {
       credentials: "include", // Include session cookies

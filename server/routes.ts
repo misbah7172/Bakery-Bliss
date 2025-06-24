@@ -17,6 +17,25 @@ import {
   type InsertChat
 } from "@shared/schema";
 
+// Extend Express Request interface
+declare global {
+  namespace Express {
+    interface Request {
+      user?: {
+        id: number;
+        email: string;
+        username: string;
+        fullName: string;
+        role: string;
+        profileImage?: string | null;
+        customerSince?: number | null;
+        completedOrders?: number | null;
+        mainBakerId?: number | null;
+      };
+    }
+  }
+}
+
 // Authentication middleware
 const authenticate = async (req: Request, res: Response, next: any) => {
   try {
@@ -36,7 +55,17 @@ const authenticate = async (req: Request, res: Response, next: any) => {
       return res.status(401).json({ message: "Invalid session" });
     }
     
-    req.user = user;
+    req.user = {
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      fullName: user.fullName,
+      role: user.role,
+      profileImage: user.profileImage,
+      customerSince: user.customerSince,
+      completedOrders: user.completedOrders,
+      mainBakerId: user.mainBakerId
+    };
     console.log('Authentication successful for user:', user.id);
     next();
   } catch (error) {
@@ -95,8 +124,15 @@ const authorize = (roles: string[]) => {
       id: req.user.id,
       role: userRole
     });
-    next();
-  };
+    next();  };
+};
+
+// Helper function to ensure user is authenticated
+const getAuthenticatedUser = (req: Request) => {
+  if (!req.user) {
+    throw new Error("User not authenticated");
+  }
+  return req.user;
 };
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -222,15 +258,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Get current user
   app.get("/api/users/me", authenticate, async (req, res) => {
-    try {
-      res.json({
-        id: req.user.id,
-        email: req.user.email,
-        username: req.user.username,
-        fullName: req.user.fullName,
-        role: req.user.role,
-        profileImage: req.user.profileImage,
-        customerSince: req.user.customerSince
+    try {      res.json({
+        id: req.user!.id,
+        email: req.user!.email,
+        username: req.user!.username,
+        fullName: req.user!.fullName,
+        role: req.user!.role,
+        profileImage: req.user!.profileImage,
+        customerSince: req.user!.customerSince
       });
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
@@ -389,11 +424,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (isNaN(orderTotal)) {
         console.log('Invalid total amount:', totalAmount);
         return res.status(400).json({ message: "Valid total amount is required" });
-      }
-
-      // Calculate deadline (24 hours from now)
+      }      // Calculate deadline (24 hours from now)
       const deadline = new Date();
       deadline.setHours(deadline.getHours() + 24);
+        // Determine main baker based on products in the order
+      let assignedMainBakerId = null;
+      if (items.length > 0) {
+        // Get the main baker from the first product in the order
+        for (const item of items) {
+          if (item.productId) {
+            const product = await storage.getProduct(item.productId);
+            if (product && product.mainBakerId) {
+              assignedMainBakerId = product.mainBakerId;
+              break; // Assign to the first product's main baker
+            }
+          } else if (item.customCakeId) {
+            const customCake = await storage.getCustomCakeById(item.customCakeId);
+            if (customCake && customCake.mainBakerId) {
+              assignedMainBakerId = customCake.mainBakerId;
+              break;
+            }
+          }
+        }
+      }
       
       // Validate order data
       const orderData = {
@@ -402,6 +455,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: (status || 'pending') as "pending" | "processing" | "quality_check" | "ready" | "delivered" | "cancelled",
         totalAmount: orderTotal, // Use our validated number
         deadline: deadline,
+        mainBakerId: assignedMainBakerId, // Automatically assign main baker
         // Let defaultNow handle the timestamps
       };
       
@@ -463,7 +517,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             
             console.log('Order item data to add:', JSON.stringify(itemData, null, 2));
             const orderItem = await storage.addOrderItem(itemData);
-            console.log('Order item added:', JSON.stringify(orderItem, null, 2));
+            console.log('Order item added:', JSON.stringify(orderItem, null, 2));          }
+          
+          // Initialize chat for this order (add customer as participant)
+          console.log('🔄 About to initialize chat for order:', order.id);
+          try {
+            await storage.initializeChatForOrder(order.id);
+            console.log('✅ Chat initialization completed for order:', order.id);
+          } catch (error) {
+            console.error('❌ Error initializing chat for order:', order.id, error);
+            // Don't fail the order creation if chat initialization fails
           }
           
           res.status(201).json(order);
@@ -483,12 +546,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ message: "Invalid input", errors: error.errors });
         }
         throw error;
-      }
-    } catch (error) {
+      }    } catch (error) {
       console.error('Error in order creation:', error);
       res.status(500).json({ message: "Internal server error" });
     }
-  });  // Get single order by ID
+  });
+
+  // Customer Orders for Chat
+  app.get("/api/orders/customer", authenticate, authorize(['customer']), async (req, res) => {
+    try {
+      const customerId = req.user!.id;
+      
+      // Get customer orders with baker info for chat
+      const orders = await storage.getCustomerOrdersForChat(customerId);
+      
+      console.log('Customer orders for chat:', JSON.stringify(orders, null, 2));
+      
+      res.json(orders);
+    } catch (error) {
+      console.error("Error fetching customer orders for chat:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get single order by ID
   app.get("/api/orders/:id", authenticate, async (req, res) => {
     try {
       const orderId = parseInt(req.params.id);
@@ -556,28 +637,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(order);
     } catch (error) {      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  // Get customer's orders
-  app.get("/api/orders/customer", authenticate, async (req, res) => {
-    try {
-      const userId = req.user!.id;
-      const orders = await storage.getOrdersWithDetailsByUserId(userId);
-      res.json(orders);
-    } catch (error) {
-      console.error("Error fetching customer orders:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
+    }  });
   // ===== CHAT ROUTES =====
   
   // Get chats for an order
   app.get("/api/chats/:orderId", authenticate, async (req, res) => {
     try {
       const orderId = parseInt(req.params.orderId);
+      console.log(`🔍 Fetching chats for order ${orderId} by user ${req.user.id} (${req.user.fullName}) - Role: ${req.user.role}`);
+      
+      // Check if user has access to this order
+      const order = await storage.getOrderById(orderId);
+      if (!order) {
+        console.log(`❌ Order ${orderId} not found`);
+        return res.status(404).json({ message: "Order not found" });
+      }
+      
+      console.log(`📦 Order details:`, {
+        id: order.id,
+        userId: order.userId,
+        juniorBakerId: order.juniorBakerId,
+        status: order.status
+      });
+      
+      // Check permissions
+      const canAccess = (
+        req.user.role === 'customer' && order.userId === req.user.id
+      ) || (
+        req.user.role === 'junior_baker' && order.juniorBakerId === req.user.id
+      ) || (
+        req.user.role === 'main_baker'
+      );
+      
+      if (!canAccess) {
+        console.log(`🚫 User ${req.user.id} doesn't have access to order ${orderId}`);
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
       const chats = await storage.getChatsByOrderId(orderId);
+      console.log(`💬 Found ${chats.length} messages for order ${orderId}:`, chats);
       res.json(chats);
     } catch (error) {
       console.error("Error fetching chats:", error);
@@ -688,9 +786,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!application) {
         return res.status(404).json({ message: "Application not found" });
       }
-      
-      // If approved, update user role
-      if (status === 'approved') {
+        // If approved, update user role
+      if (status === 'approved' && application.userId) {
         const user = await storage.getUserById(application.userId);
         
         if (user) {
@@ -765,94 +862,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Internal server error" });
     }
   });
-
-  // ===== REVIEW ROUTES =====
-  
-  // Create a new review
-  app.post('/api/reviews', authenticate, async (req: Request, res: Response) => {
-    try {
-      const validatedData = insertReviewSchema.parse(req.body);
-      
-      // Check if user can review this order
-      const canReview = await storage.canUserReviewOrder(req.user.id, validatedData.orderId);
-      if (!canReview) {
-        return res.status(400).json({ error: 'You cannot review this order' });
-      }
-
-      const review = await storage.createReview({
-        ...validatedData,
-        userId: req.user.id
-      });
-      res.json(review);
-    } catch (error: any) {
-      console.error('Error creating review:', error);
-      if (error.name === 'ZodError') {
-        return res.status(400).json({ error: 'Invalid review data', details: error.errors });
-      }
-      res.status(500).json({ error: 'Failed to submit review' });
-    }
-  });
-
-  // Get reviews for a specific order
-  app.get('/api/reviews/order/:orderId', async (req: Request, res: Response) => {
-    try {
-      const orderId = parseInt(req.params.orderId);
-      const reviews = await storage.getReviewsByOrderId(orderId);
-      res.json(reviews);
-    } catch (error) {
-      console.error('Error fetching order reviews:', error);
-      res.status(500).json({ error: 'Failed to fetch reviews' });
-    }
-  });
-
-  // Get reviews by a specific user
-  app.get('/api/reviews/user/:userId', authenticate, async (req: Request, res: Response) => {
-    try {
-      const userId = parseInt(req.params.userId);
-      const reviews = await storage.getReviewsByUserId(userId);
-      res.json(reviews);
-    } catch (error) {
-      console.error('Error fetching user reviews:', error);
-      res.status(500).json({ error: 'Failed to fetch reviews' });
-    }
-  });
-
-  // Get reviews for a specific baker with average rating
-  app.get('/api/reviews/baker/:bakerId', async (req: Request, res: Response) => {
-    try {
-      const bakerId = parseInt(req.params.bakerId);
-      const reviews = await storage.getReviewsByJuniorBakerId(bakerId);
-      const averageRating = await storage.getBakerAverageRating(bakerId);
-      res.json({ reviews, averageRating });
-    } catch (error) {
-      console.error('Error fetching baker reviews:', error);
-      res.status(500).json({ error: 'Failed to fetch baker reviews' });
-    }
-  });
-
-  // Check if user can review a specific order
-  app.get('/api/reviews/can-review/:orderId', authenticate, async (req: Request, res: Response) => {
-    try {
-      const orderId = parseInt(req.params.orderId);
-      const canReview = await storage.canUserReviewOrder(req.user.id, orderId);
-      res.json({ canReview });
-    } catch (error) {
-      console.error('Error checking review eligibility:', error);
-      res.status(500).json({ error: 'Failed to check review eligibility' });
-    }
-  });
-
-  // Get all reviews for admin
-  app.get('/api/reviews', authorize(['admin']), async (req: Request, res: Response) => {
-    try {
-      const reviews = await storage.getAllReviews();
-      res.json(reviews);
-    } catch (error) {
-      console.error('Error fetching all reviews:', error);
-      res.status(500).json({ error: 'Failed to fetch reviews' });
-    }
-  });
-
   // ===== DASHBOARD STATS ROUTES =====
   
   // Get customer dashboard stats
@@ -1207,14 +1216,156 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  return httpServer;
-}
-
-// Extend Request type to include user
-declare global {
-  namespace Express {
-    interface Request {
-      user?: any;
+  // Get products created by main baker
+  app.get("/api/main-baker/products", authenticate, authorize(['main_baker']), async (req, res) => {
+    try {
+      const mainBakerId = req.user.id;
+      const products = await storage.getProductsByMainBaker(mainBakerId);
+      res.json(products);
+    } catch (error) {
+      console.error("Error fetching main baker products:", error);
+      res.status(500).json({ message: "Internal server error" });
     }
-  }
+  });
+
+  // Create product (main baker only)
+  app.post("/api/main-baker/products", authenticate, authorize(['main_baker']), async (req, res) => {
+    try {
+      const mainBakerId = req.user.id;
+      const productData = {
+        ...req.body,
+        mainBakerId
+      };
+      
+      const product = await storage.createProduct(productData);
+      res.status(201).json(product);
+    } catch (error) {
+      console.error("Error creating product:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Update product (main baker only - own products)
+  app.put("/api/main-baker/products/:productId", authenticate, authorize(['main_baker']), async (req, res) => {
+    try {
+      const { productId } = req.params;      const mainBakerId = req.user.id;
+      
+      // Verify the product belongs to this main baker
+      const existingProduct = await storage.getProduct(parseInt(productId));
+      if (!existingProduct || existingProduct.mainBakerId !== mainBakerId) {
+        return res.status(403).json({ message: "You can only edit your own products" });
+      }
+      
+      const updatedProduct = await storage.updateProduct(parseInt(productId), req.body);
+      res.json(updatedProduct);
+    } catch (error) {
+      console.error("Error updating product:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Delete product (main baker only - own products)
+  app.delete("/api/main-baker/products/:productId", authenticate, authorize(['main_baker']), async (req, res) => {
+    try {
+      const { productId } = req.params;
+      const mainBakerId = req.user.id;
+        // Verify the product belongs to this main baker
+      const existingProduct = await storage.getProduct(parseInt(productId));
+      if (!existingProduct || existingProduct.mainBakerId !== mainBakerId) {
+        return res.status(403).json({ message: "You can only delete your own products" });
+      }
+      
+      await storage.deleteProduct(parseInt(productId));
+      res.json({ message: "Product deleted successfully" });    } catch (error) {
+      console.error("Error deleting product:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });  // Junior Baker Tasks API
+  app.get("/api/junior-baker/tasks", authenticate, authorize(['junior_baker']), async (req, res) => {
+    try {
+      const juniorBakerId = req.user.id;
+      
+      // Get orders assigned to this junior baker
+      const tasks = await storage.getOrdersByJuniorBaker(juniorBakerId);
+      
+      console.log('Junior Baker Tasks Response:', JSON.stringify(tasks, null, 2));
+      res.json(tasks);
+    } catch (error) {
+      console.error("Error fetching junior baker tasks:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });  // Assign order to junior baker with deadline
+  app.patch("/api/orders/:orderId/assign", authenticate, authorize(['main_baker']), async (req, res) => {
+    try {
+      const { orderId } = req.params;
+      const { juniorBakerId, deadline } = req.body;
+      
+      if (!req.user) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+      
+      const mainBakerId = req.user.id;
+      
+      if (!juniorBakerId) {
+        return res.status(400).json({ message: "Junior baker ID is required" });
+      }
+      
+      // Verify the order belongs to this main baker
+      const order = await storage.getOrderById(parseInt(orderId));
+      if (!order || order.mainBakerId !== mainBakerId) {
+        return res.status(403).json({ message: "You can only assign your own orders" });
+      }
+      
+      // Verify the junior baker exists
+      const juniorBaker = await storage.getUser(juniorBakerId);
+      if (!juniorBaker || juniorBaker.role !== 'junior_baker') {
+        return res.status(404).json({ message: "Junior baker not found" });
+      }
+        // Assign the order
+      await storage.assignOrderToJuniorBaker(parseInt(orderId), juniorBakerId, deadline);
+      
+      // Initialize/update chat participants for this order to include the junior baker
+      await storage.initializeChatForOrder(parseInt(orderId));
+      
+      // Create a system message to notify about the assignment
+      const juniorBakerName = juniorBaker.fullName;
+      const systemMessage = `🎂 Your order has been assigned to ${juniorBakerName}, our skilled Junior Baker! They will be working on your order and can answer any questions you might have about the baking process.${deadline ? ` Expected completion: ${new Date(deadline).toLocaleDateString()}` : ''}`;
+      
+      await storage.createChat({
+        orderId: parseInt(orderId),
+        senderId: mainBakerId, // Main baker sends the notification
+        message: systemMessage
+      });
+      
+      console.log(`Order ${orderId} assigned to junior baker ${juniorBakerId} with deadline ${deadline || 'existing'}`);
+      console.log(`Chat initialized between customer and junior baker for order ${orderId}`);
+      
+      res.json({
+        message: "Order assigned successfully and chat created",
+        orderId: parseInt(orderId),
+        juniorBakerId: juniorBakerId,
+        deadline: deadline
+      });
+    } catch (error) {
+      console.error("Error assigning order:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Junior Baker Assigned Orders for Chat
+  app.get("/api/junior-baker/assigned-orders", authenticate, authorize(['junior_baker']), async (req, res) => {
+    try {
+      const juniorBakerId = req.user.id;
+      
+      // Get orders assigned to this junior baker with customer info
+      const orders = await storage.getOrdersByJuniorBakerWithCustomerInfo(juniorBakerId);
+      
+      res.json(orders);
+    } catch (error) {
+      console.error("Error fetching assigned orders for chat:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  return httpServer;
 }

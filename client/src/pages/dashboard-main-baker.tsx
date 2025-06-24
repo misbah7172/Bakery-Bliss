@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { useLocation } from "wouter";
 import AppLayout from "@/components/layouts/AppLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { 
   Select,
   SelectContent,
@@ -84,10 +87,22 @@ interface DashboardStats {
 
 export default function MainBakerDashboard() {
   const { user } = useAuth();
+  const [, navigate] = useLocation();
   const queryClient = useQueryClient();
   
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  // Redirect if not authenticated or not a main baker
+  if (!user) {
+    navigate("/");
+    return null;
+  }
+  
+  if (user.role !== "main_baker") {
+    navigate("/");
+    return null;
+  }
+    const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [selectedJuniorBaker, setSelectedJuniorBaker] = useState("");
+  const [selectedDeadline, setSelectedDeadline] = useState("");
   const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
 
   // Fetch dashboard stats
@@ -118,15 +133,14 @@ export default function MainBakerDashboard() {
     queryKey: ["/api/baker-applications/pending"],
     enabled: !!user
   });
-
   // Assign order to junior baker mutation
   const assignOrderMutation = useMutation({
-    mutationFn: async ({ orderId, juniorBakerId }: { orderId: number; juniorBakerId: number }) => {
+    mutationFn: async ({ orderId, juniorBakerId, deadline }: { orderId: number; juniorBakerId: number; deadline?: string }) => {
       const response = await fetch(`/api/orders/${orderId}/assign`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ juniorBakerId })
+        body: JSON.stringify({ juniorBakerId, deadline })
       });
       
       if (!response.ok) {
@@ -134,13 +148,13 @@ export default function MainBakerDashboard() {
       }
       
       return response.json();
-    },
-    onSuccess: () => {
-      toast.success("Order assigned successfully!");
+    },    onSuccess: () => {
+      toast.success("Order assigned successfully! A chat has been created between the junior baker and customer.");
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       setIsAssignDialogOpen(false);
       setSelectedOrder(null);
       setSelectedJuniorBaker("");
+      setSelectedDeadline("");
     },
     onError: () => {
       toast.error("Failed to assign order");
@@ -177,7 +191,6 @@ export default function MainBakerDashboard() {
     setSelectedOrder(order);
     setIsAssignDialogOpen(true);
   };
-
   const handleConfirmAssignment = () => {
     if (!selectedOrder || !selectedJuniorBaker) {
       toast.error("Please select a junior baker");
@@ -186,7 +199,8 @@ export default function MainBakerDashboard() {
 
     assignOrderMutation.mutate({
       orderId: selectedOrder.id,
-      juniorBakerId: parseInt(selectedJuniorBaker)
+      juniorBakerId: parseInt(selectedJuniorBaker),
+      deadline: selectedDeadline || undefined
     });
   };
 
@@ -423,10 +437,15 @@ export default function MainBakerDashboard() {
               </CardContent>
             </Card>
           </div>
-        </div>
-
-        {/* Assignment Dialog */}
-        <Dialog open={isAssignDialogOpen} onOpenChange={setIsAssignDialogOpen}>
+        </div>        {/* Assignment Dialog */}
+        <Dialog open={isAssignDialogOpen} onOpenChange={(open) => {
+          setIsAssignDialogOpen(open);
+          if (!open) {
+            setSelectedOrder(null);
+            setSelectedJuniorBaker("");
+            setSelectedDeadline("");
+          }
+        }}>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
               <DialogTitle>Assign Order to Junior Baker</DialogTitle>
@@ -434,9 +453,9 @@ export default function MainBakerDashboard() {
                 Select a junior baker to handle order {selectedOrder?.orderId}
               </DialogDescription>
             </DialogHeader>
-            
-            <div className="grid gap-4 py-4">
+              <div className="grid gap-4 py-4">
               <div className="space-y-2">
+                <Label htmlFor="junior-baker">Select Junior Baker</Label>
                 <Select value={selectedJuniorBaker} onValueChange={setSelectedJuniorBaker}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select a junior baker" />
@@ -456,6 +475,17 @@ export default function MainBakerDashboard() {
                 </Select>
               </div>
               
+              <div className="space-y-2">
+                <Label htmlFor="deadline">Custom Deadline (Optional)</Label>
+                <Input
+                  id="deadline"
+                  type="datetime-local"
+                  value={selectedDeadline}
+                  onChange={(e) => setSelectedDeadline(e.target.value)}
+                  placeholder="Leave empty to use order deadline"
+                />
+              </div>
+              
               {selectedOrder && (
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <p className="font-medium">Order Details:</p>
@@ -463,8 +493,13 @@ export default function MainBakerDashboard() {
                     Order {selectedOrder.orderId} - {formatCurrency(selectedOrder.totalAmount)}
                   </p>
                   <p className="text-sm text-gray-600">
-                    Deadline: {format(new Date(selectedOrder.deadline), 'PPp')}
+                    Current Deadline: {format(new Date(selectedOrder.deadline), 'PPp')}
                   </p>
+                  {selectedDeadline && (
+                    <p className="text-sm text-blue-600">
+                      New Deadline: {format(new Date(selectedDeadline), 'PPp')}
+                    </p>
+                  )}
                 </div>
               )}
             </div>

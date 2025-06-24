@@ -32,6 +32,7 @@ const CakeBuilder = () => {
   const [selectedFlavor, setSelectedFlavor] = useState<CakeFlavor | null>(null);
   const [selectedFrosting, setSelectedFrosting] = useState<CakeFrosting | null>(null);
   const [selectedDecoration, setSelectedDecoration] = useState<CakeDecoration | null>(null);
+  const [selectedMainBaker, setSelectedMainBaker] = useState<any | null>(null);
   const [cakeMessage, setCakeMessage] = useState("");
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -61,21 +62,27 @@ const CakeBuilder = () => {
   
   const totalPrice = calculateTotalPrice();
   
-  // Fetch cake options
-  const { data: shapes = [], isLoading: shapesLoading } = useQuery<CakeShape[]>({
-    queryKey: ['/api/cake-builder/shapes'],
+  // Queries for cake building options
+  const { data: shapes, isLoading: shapesLoading } = useQuery<CakeShape[]>({
+    queryKey: ["/api/cake-shapes"]
   });
   
-  const { data: flavors = [], isLoading: flavorsLoading } = useQuery<CakeFlavor[]>({
-    queryKey: ['/api/cake-builder/flavors'],
+  const { data: flavors, isLoading: flavorsLoading } = useQuery<CakeFlavor[]>({
+    queryKey: ["/api/cake-flavors"]
   });
   
-  const { data: frostings = [], isLoading: frostingsLoading } = useQuery<CakeFrosting[]>({
-    queryKey: ['/api/cake-builder/frostings'],
+  const { data: frostings, isLoading: frostingsLoading } = useQuery<CakeFrosting[]>({
+    queryKey: ["/api/cake-frostings"]
   });
   
-  const { data: decorations = [], isLoading: decorationsLoading } = useQuery<CakeDecoration[]>({
-    queryKey: ['/api/cake-builder/decorations'],
+  const { data: decorations, isLoading: decorationsLoading } = useQuery<CakeDecoration[]>({
+    queryKey: ["/api/cake-decorations"]
+  });
+  
+  // Query for main bakers with profiles
+  const { data: mainBakers, isLoading: bakersLoading } = useQuery({
+    queryKey: ["/api/main-bakers"],
+    enabled: currentStep === 5 // Only load when needed
   });
   
   // Set default selections when data loads
@@ -105,7 +112,7 @@ const CakeBuilder = () => {
   
   // Handle step navigation
   const nextStep = () => {
-    if (currentStep < 4) {
+    if (currentStep < 6) {
       setCurrentStep(prev => prev + 1);
     }
   };
@@ -115,8 +122,7 @@ const CakeBuilder = () => {
       setCurrentStep(prev => prev - 1);
     }
   };
-  
-  // Handle form submission
+    // Handle form submission
   const handleAddToCart = async () => {
     if (!user) {
       toast({
@@ -127,11 +133,20 @@ const CakeBuilder = () => {
       navigate("/login");
       return;
     }
-    
-    if (!selectedShape || !selectedFlavor || !selectedFrosting) {
+
+    // Only customers can add to cart
+    if (user.role !== "customer") {
+      toast({
+        title: "Access Restricted",
+        description: "Only customers can add items to cart",
+        variant: "destructive"
+      });
+      return;
+    }
+      if (!selectedShape || !selectedFlavor || !selectedFrosting || !selectedMainBaker) {
       toast({
         title: "Incomplete Selection",
-        description: "Please complete all required selections",
+        description: "Please complete all required selections including main baker",
         variant: "destructive"
       });
       return;
@@ -139,8 +154,7 @@ const CakeBuilder = () => {
     
     try {
       setIsSubmitting(true);
-      
-      const customCakeData = {
+        const customCakeData = {
         userId: user.id,
         name: "Custom Cake",
         shapeId: selectedShape.id,
@@ -150,6 +164,7 @@ const CakeBuilder = () => {
         message: cakeMessage,
         specialInstructions,
         totalPrice,
+        mainBakerId: selectedMainBaker.id, // Assign selected main baker
         isSaved: false
       };
       
@@ -163,13 +178,13 @@ const CakeBuilder = () => {
         title: "Success!",
         description: "Your custom cake has been added to cart",
       });
-      
-      // Reset form
+        // Reset form
       setCurrentStep(1);
-      setSelectedShape(shapes[0]);
-      setSelectedFlavor(flavors[0]);
-      setSelectedFrosting(frostings[0]);
-      setSelectedDecoration(decorations[0]);
+      setSelectedShape(shapes?.[0] || null);
+      setSelectedFlavor(flavors?.[0] || null);
+      setSelectedFrosting(frostings?.[0] || null);
+      setSelectedDecoration(decorations?.[0] || null);
+      setSelectedMainBaker(null);
       setCakeMessage("");
       setSpecialInstructions("");
     } catch (error) {
@@ -185,7 +200,7 @@ const CakeBuilder = () => {
   };
   
   // Check if any required data is loading
-  const isLoading = shapesLoading || flavorsLoading || frostingsLoading || decorationsLoading;
+  const isLoading = shapesLoading || flavorsLoading || frostingsLoading || decorationsLoading || bakersLoading;
   
   // Determine if the cake is complete
   const isCakeComplete = selectedShape && selectedFlavor && selectedFrosting;
@@ -217,70 +232,101 @@ const CakeBuilder = () => {
         
         <div className="flex flex-col lg:flex-row gap-8">
           {/* Left Column - Builder Steps */}
-          <div className="lg:w-2/3">
-            {/* Step Navigation */}
+          <div className="lg:w-2/3">            {/* Step Navigation */}
             <div className="flex mb-8">
               <div 
-                className={`step-nav w-1/4 text-center py-3 rounded-l-lg font-poppins cursor-pointer ${
+                className={`step-nav w-1/6 text-center py-3 rounded-l-lg font-poppins cursor-pointer ${
                   currentStep === 1 ? 'bg-primary text-white' : 'bg-background'
                 }`}
                 onClick={() => setCurrentStep(1)}
               >
                 <div className="flex flex-col items-center">
-                  <div className={`h-8 w-8 mb-1 rounded-full ${
+                  <div className={`h-6 w-6 mb-1 rounded-full ${
                     currentStep === 1 
                       ? 'bg-white text-primary border-2 border-white' 
                       : 'bg-white text-foreground/70 border-2 border-accent'
-                  } flex items-center justify-center`}>1</div>
-                  <span className="text-sm">Shape & Size</span>
+                  } flex items-center justify-center text-xs`}>1</div>
+                  <span className="text-xs">Shape</span>
                 </div>
               </div>
               
               <div 
-                className={`step-nav w-1/4 text-center py-3 font-poppins cursor-pointer ${
+                className={`step-nav w-1/6 text-center py-3 font-poppins cursor-pointer ${
                   currentStep === 2 ? 'bg-primary text-white' : 'bg-background'
                 }`}
                 onClick={() => setCurrentStep(2)}
               >
                 <div className="flex flex-col items-center">
-                  <div className={`h-8 w-8 mb-1 rounded-full ${
+                  <div className={`h-6 w-6 mb-1 rounded-full ${
                     currentStep === 2 
                       ? 'bg-white text-primary border-2 border-white' 
                       : 'bg-white text-foreground/70 border-2 border-accent'
-                  } flex items-center justify-center`}>2</div>
-                  <span className="text-sm">Flavor</span>
+                  } flex items-center justify-center text-xs`}>2</div>
+                  <span className="text-xs">Flavor</span>
                 </div>
               </div>
               
               <div 
-                className={`step-nav w-1/4 text-center py-3 font-poppins cursor-pointer ${
+                className={`step-nav w-1/6 text-center py-3 font-poppins cursor-pointer ${
                   currentStep === 3 ? 'bg-primary text-white' : 'bg-background'
                 }`}
                 onClick={() => setCurrentStep(3)}
               >
                 <div className="flex flex-col items-center">
-                  <div className={`h-8 w-8 mb-1 rounded-full ${
+                  <div className={`h-6 w-6 mb-1 rounded-full ${
                     currentStep === 3 
                       ? 'bg-white text-primary border-2 border-white' 
                       : 'bg-white text-foreground/70 border-2 border-accent'
-                  } flex items-center justify-center`}>3</div>
-                  <span className="text-sm">Frosting</span>
+                  } flex items-center justify-center text-xs`}>3</div>
+                  <span className="text-xs">Frosting</span>
                 </div>
               </div>
               
               <div 
-                className={`step-nav w-1/4 text-center py-3 rounded-r-lg font-poppins cursor-pointer ${
+                className={`step-nav w-1/6 text-center py-3 font-poppins cursor-pointer ${
                   currentStep === 4 ? 'bg-primary text-white' : 'bg-background'
                 }`}
                 onClick={() => setCurrentStep(4)}
               >
                 <div className="flex flex-col items-center">
-                  <div className={`h-8 w-8 mb-1 rounded-full ${
+                  <div className={`h-6 w-6 mb-1 rounded-full ${
                     currentStep === 4 
                       ? 'bg-white text-primary border-2 border-white' 
                       : 'bg-white text-foreground/70 border-2 border-accent'
-                  } flex items-center justify-center`}>4</div>
-                  <span className="text-sm">Decorations</span>
+                  } flex items-center justify-center text-xs`}>4</div>
+                  <span className="text-xs">Decorations</span>
+                </div>
+              </div>
+              
+              <div 
+                className={`step-nav w-1/6 text-center py-3 font-poppins cursor-pointer ${
+                  currentStep === 5 ? 'bg-primary text-white' : 'bg-background'
+                }`}
+                onClick={() => setCurrentStep(5)}
+              >
+                <div className="flex flex-col items-center">
+                  <div className={`h-6 w-6 mb-1 rounded-full ${
+                    currentStep === 5 
+                      ? 'bg-white text-primary border-2 border-white' 
+                      : 'bg-white text-foreground/70 border-2 border-accent'
+                  } flex items-center justify-center text-xs`}>5</div>
+                  <span className="text-xs">Baker</span>
+                </div>
+              </div>
+              
+              <div 
+                className={`step-nav w-1/6 text-center py-3 rounded-r-lg font-poppins cursor-pointer ${
+                  currentStep === 6 ? 'bg-primary text-white' : 'bg-background'
+                }`}
+                onClick={() => setCurrentStep(6)}
+              >
+                <div className="flex flex-col items-center">
+                  <div className={`h-6 w-6 mb-1 rounded-full ${
+                    currentStep === 6 
+                      ? 'bg-white text-primary border-2 border-white' 
+                      : 'bg-white text-foreground/70 border-2 border-accent'
+                  } flex items-center justify-center text-xs`}>6</div>
+                  <span className="text-xs">Details</span>
                 </div>
               </div>
             </div>
@@ -451,6 +497,67 @@ const CakeBuilder = () => {
                       </div>
                     )}
                     
+                    {/* Step 5: Main Baker Selection */}
+                    {currentStep === 5 && (
+                      <Card className="p-8">
+                        <div className="text-center mb-8">
+                          <h2 className="text-3xl font-bold mb-4">Choose Your Main Baker</h2>
+                          <p className="text-gray-600">Select the main baker who will craft your custom cake</p>
+                        </div>
+                        
+                        {bakersLoading ? (
+                          <div className="flex justify-center">
+                            <Loader2 className="h-8 w-8 animate-spin" />
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {mainBakers?.map((baker: any) => (
+                              <div
+                                key={baker.id}
+                                className={`border-2 rounded-lg p-6 cursor-pointer transition-all hover:shadow-lg ${
+                                  selectedMainBaker?.id === baker.id 
+                                    ? 'border-primary bg-primary/5' 
+                                    : 'border-gray-200 hover:border-primary/50'
+                                }`}
+                                onClick={() => setSelectedMainBaker(baker)}
+                              >
+                                <div className="text-center">
+                                  <div className="w-20 h-20 bg-orange-100 rounded-full mx-auto mb-4 flex items-center justify-center">
+                                    <span className="text-2xl font-bold text-orange-600">
+                                      {baker.fullName.split(' ').map((n: string) => n[0]).join('')}
+                                    </span>
+                                  </div>
+                                  <h3 className="font-semibold text-lg mb-2">{baker.fullName}</h3>
+                                  <p className="text-sm text-gray-600 mb-3">{baker.email}</p>
+                                  
+                                  <div className="space-y-2">
+                                    <div className="flex justify-between text-sm">
+                                      <span className="text-gray-600">Completed Orders:</span>
+                                      <span className="font-medium">{baker.completedOrders || 0}</span>
+                                    </div>
+                                    <div className="flex justify-between text-sm">
+                                      <span className="text-gray-600">Team Size:</span>
+                                      <span className="font-medium">{baker.teamSize || 0} junior bakers</span>
+                                    </div>
+                                  </div>
+                                  
+                                  {selectedMainBaker?.id === baker.id && (
+                                    <div className="mt-4">
+                                      <div className="w-6 h-6 bg-primary rounded-full mx-auto flex items-center justify-center">
+                                        <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                        </svg>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </Card>
+                    )}
+                    
                     <div className="mt-8 flex justify-between">
                       <Button 
                         variant="outline" 
@@ -460,12 +567,11 @@ const CakeBuilder = () => {
                       >
                         Back
                       </Button>
-                      
-                      {currentStep < 4 ? (
+                        {currentStep < 6 ? (
                         <Button onClick={nextStep} className="bg-primary hover:bg-primary/90">
                           Next Step
                         </Button>
-                      ) : (
+                      ) : (!user || user.role === "customer") ? (
                         <Button 
                           onClick={handleAddToCart} 
                           className="bg-primary hover:bg-primary/90"
@@ -479,6 +585,13 @@ const CakeBuilder = () => {
                           ) : (
                             "Add to Cart"
                           )}
+                        </Button>
+                      ) : (
+                        <Button 
+                          disabled
+                          className="bg-accent text-foreground opacity-60 cursor-not-allowed"
+                        >
+                          Cart Not Available
                         </Button>
                       )}
                     </div>
@@ -601,16 +714,15 @@ const CakeBuilder = () => {
                     <span className="text-primary font-poppins font-semibold">${totalPrice.toFixed(2)}</span>
                   </div>
                 </div>
-                
-                <Button 
+                  <Button 
                   className={`w-full ${
-                    isCakeComplete 
+                    (!user || user.role === "customer") && isCakeComplete 
                       ? "bg-primary hover:bg-primary/90" 
                       : "bg-accent text-foreground opacity-60 cursor-not-allowed"
                   }`}
-                  disabled={!isCakeComplete || isSubmitting}
+                  disabled={!isCakeComplete || isSubmitting || (user && user.role !== "customer")}
                   onClick={() => {
-                    if (currentStep < 4) {
+                    if (currentStep < 6) {
                       nextStep();
                     } else {
                       handleAddToCart();
@@ -622,8 +734,10 @@ const CakeBuilder = () => {
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       Adding...
                     </>
-                  ) : currentStep < 4 ? (
+                  ) : currentStep < 6 ? (
                     "Continue to Next Step"
+                  ) : user && user.role !== "customer" ? (
+                    "Cart Not Available"
                   ) : isCakeComplete ? (
                     "Add to Cart"
                   ) : (

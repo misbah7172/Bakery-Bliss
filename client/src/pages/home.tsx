@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import AppLayout from "@/components/layouts/AppLayout";
 import CategoryCard from "@/components/ui/category-card";
 import ProductCard from "@/components/ui/product-card";
-import TestimonialCard from "@/components/ui/testimonial-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Product } from "@shared/schema";

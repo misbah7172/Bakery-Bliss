@@ -7,7 +7,7 @@ import AppLayout from "@/components/layouts/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Eye } from "lucide-react";
+import { Eye, Package } from "lucide-react";
 import ChatComponent from "@/components/ui/chat-simple";
 
 const CustomerChatPage = () => {
@@ -43,6 +43,11 @@ const CustomerChatPage = () => {
     }
   };
 
+  const canChat = (order: any) => {
+    // Customer can chat if order is assigned to a baker (has assignedBaker and is processing or later)
+    return order.assignedBaker && ['processing', 'quality_check', 'ready'].includes(order.status.toLowerCase());
+  };
+
   if (ordersLoading) {
     return (
       <AppLayout>
@@ -73,33 +78,48 @@ const CustomerChatPage = () => {
               <CardHeader>
                 <CardTitle>Recent Orders</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {orders.length === 0 ? (
-                  <p className="text-muted-foreground text-center py-4">
-                    No orders found
-                  </p>
-                ) : (
-                  orders.map((order: any) => (
+              <CardContent className="space-y-3">                {orders.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Package className="h-12 w-12 mx-auto text-gray-400 mb-4" />
+                    <p className="text-gray-500">No orders found</p>
+                    <p className="text-sm text-gray-400">Place an order to start chatting with bakers</p>
+                  </div>
+                ) : (                  orders.map((order: any) => (
                     <div
                       key={order.id}
                       className={`p-3 rounded-lg border cursor-pointer transition-colors ${
                         selectedOrderId === order.id
                           ? "border-primary bg-primary/5"
                           : "border-border hover:bg-muted/50"
-                      }`}
-                      onClick={() => setSelectedOrderId(order.id)}
+                      } ${!canChat(order) ? 'opacity-60' : ''}`}
+                      onClick={() => canChat(order) && setSelectedOrderId(order.id)}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <span className="font-medium">Order #{order.orderNumber || `ORD-${order.id}`}</span>
                         <Badge className={getStatusColor(order.status)}>
                           {order.status.replace('_', ' ')}
                         </Badge>
-                      </div>
-                      {order.juniorBaker && (
+                      </div>                      {order.assignedBaker && (
                         <p className="text-sm text-muted-foreground">
-                          Baker: {order.juniorBaker.fullName}
-                        </p>
-                      )}
+                          Baker: {order.assignedBaker}
+                        </p>                      )}
+                      
+                      <div className="flex items-center gap-2 mt-2 mb-2">
+                        {canChat(order) ? (
+                          <div className="flex items-center gap-1 text-green-600">
+                            <Eye className="h-4 w-4" />
+                            <span className="text-xs">Chat available</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 text-gray-400">
+                            <Package className="h-4 w-4" />
+                            <span className="text-xs">
+                              {order.status === 'pending' ? 'Waiting for assignment' : 'Chat not available'}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      
                       <div className="flex items-center justify-between mt-2">
                         <span className="text-xs text-muted-foreground">
                           {new Date(order.createdAt).toLocaleDateString()}

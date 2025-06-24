@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { useLocation } from "wouter";
 import AppLayout from "@/components/layouts/AppLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -37,7 +38,19 @@ interface Order {
 
 const CustomerOrdersPage = () => {
   const { user } = useAuth();
+  const [, navigate] = useLocation();
   const [activeTab, setActiveTab] = useState("all");
+
+  // Redirect if not authenticated or not a customer
+  if (!user) {
+    navigate("/");
+    return null;
+  }
+  
+  if (user.role !== "customer") {
+    navigate("/");
+    return null;
+  }
 
   // Status color and label mapping
   const orderStatusMap: Record<string, { color: string; label: string }> = {

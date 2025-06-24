@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { useLocation } from "wouter";
 import AppLayout from "@/components/layouts/AppLayout";
 import { Card, CardContent, CardFooter, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,10 +47,22 @@ type SavedItem = SavedProduct | SavedCustomCake;
 
 const CustomerSavedPage = () => {
   const { user } = useAuth();
+  const [, navigate] = useLocation();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [savedItems, setSavedItems] = useState<SavedItem[]>([]);
   const [activeTab, setActiveTab] = useState("all");
+
+  // Redirect if not authenticated or not a customer
+  if (!user) {
+    navigate("/");
+    return null;
+  }
+  
+  if (user.role !== "customer") {
+    navigate("/");
+    return null;
+  }
 
   // Load saved items
   useEffect(() => {

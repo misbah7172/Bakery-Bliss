@@ -1,17 +1,33 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
 import AppLayout from "@/components/layouts/AppLayout";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Loader2, MessageCircle, Users } from "lucide-react";
 import { format } from "date-fns";
 import ChatComponent from "@/components/ui/chat-simple";
+import DirectChat from "@/components/ui/direct-chat";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+
+interface DashboardData {
+  assignedOrders?: number;
+  inProgress?: number;
+  completed?: number;
+  upcomingTasks?: Array<{
+    id: number;
+    orderId: string;
+    status: string;
+    totalAmount: number;
+    deadline: string;
+    userName: string;
+  }>;
+}
 
 interface OrderStatus {
   [key: string]: {
@@ -74,47 +90,36 @@ const orderStatusMap: OrderStatus = {
 
 const JuniorBakerDashboard = () => {
   const { user } = useAuth();
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const { toast } = useToast();
   const [updatingOrderId, setUpdatingOrderId] = useState<number | null>(null);
   
-  // Role-based access control
-  if (user && user.role !== 'junior_baker') {
-    return (
-      <AppLayout>
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <h1 className="text-2xl font-bold text-red-600 mb-4">Access Denied</h1>
-            <p className="text-gray-600 mb-4">You don't have permission to access the Junior Baker Dashboard.</p>
-            <Button onClick={() => navigate('/dashboard')}>Go to Your Dashboard</Button>
-          </div>
-        </div>
-      </AppLayout>
-    );
-  }
+  // Handle navigation in useEffect to avoid setState during render
+  useEffect(() => {
+    if (!user) {
+      navigate("/login");
+      return;
+    }
+    if (user.role !== "junior_baker") {
+      navigate("/");
+      return;
+    }
+  }, [user, navigate]);
   
-  // Redirect if not authenticated or not a junior baker
-  if (!user) {
-    navigate("/login");
-    return null;
-  }
-  
-  if (user.role !== "junior_baker") {
-    navigate("/");
-    return null;
-  }
-  
-  // Fetch junior baker's dashboard data
-  const { data: dashboardData, isLoading } = useQuery({
+  // Show loading while navigation is happening
+  if (!user || user.role !== "junior_baker") {
+    return null; // useEffect will handle navigation
+  }  // Fetch junior baker's dashboard data
+  const { data: dashboardData, isLoading } = useQuery<DashboardData>({
     queryKey: ['/api/dashboard/junior-baker'],
     enabled: !!user && user.role === "junior_baker",
   });
-  
+
   // Update order status
   const handleUpdateStatus = async (orderId: number, newStatus: string) => {
     try {
       setUpdatingOrderId(orderId);
-      await apiRequest("PATCH", `/api/orders/${orderId}/status`, { status: newStatus });
+      await apiRequest(`/api/orders/${orderId}/status`, "PATCH", { status: newStatus });
       
       // Invalidate and refetch data
       queryClient.invalidateQueries({ queryKey: ['/api/dashboard/junior-baker'] });
@@ -154,11 +159,10 @@ const JuniorBakerDashboard = () => {
       
       <div className="flex flex-col md:flex-row gap-8">
         {/* Tasks List */}
-        <div className="md:w-2/3">
-          {/* Task Cards */}
+        <div className="md:w-2/3">          {/* Task Cards */}
           <div className="space-y-6">
-            {dashboardData?.upcomingTasks?.length > 0 ? (
-              dashboardData.upcomingTasks.map((order: any) => (
+            {(dashboardData?.upcomingTasks?.length ?? 0) > 0 ? (
+              dashboardData!.upcomingTasks!.map((order: any) => (
                 <Card key={order.id} className="overflow-hidden">
                   <CardContent className="p-6">
                     <div className="flex justify-between items-center mb-4">
@@ -178,28 +182,44 @@ const JuniorBakerDashboard = () => {
                         ? format(new Date(order.deadline), 'yyyy-MM-dd HH:mm')
                         : 'Not specified'}
                     </p>
-                    
-                    <div className="flex justify-between">
-                      {orderStatusMap[order.status].actions && Object.entries(orderStatusMap[order.status].actions).map(([key, action]) => (
+                      <div className="flex justify-between items-center">
+                      <div className="flex gap-2">
+                        {orderStatusMap[order.status].actions && Object.entries(orderStatusMap[order.status].actions).map(([key, action]) => (
+                          <Button 
+                            key={key}
+                            className={action.color}
+                            onClick={() => handleUpdateStatus(order.id, action.nextStatus)}
+                            disabled={updatingOrderId === order.id}
+                          >
+                            {updatingOrderId === order.id ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Updating...
+                              </>
+                            ) : (
+                              action.label
+                            )}
+                          </Button>
+                        ))}
+                      </div>
+                      
+                      <div className="flex gap-2">                        {/* Chat with Customer Button */}
                         <Button 
-                          key={key}
-                          className={action.color}
-                          onClick={() => handleUpdateStatus(order.id, action.nextStatus)}
-                          disabled={updatingOrderId === order.id}
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => {
+                            navigate(`/dashboard/junior-baker/chat?order=${order.id}`);
+                          }}
+                          className="flex items-center gap-2"
                         >
-                          {updatingOrderId === order.id ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Updating...
-                            </>
-                          ) : (
-                            action.label
-                          )}
+                          <MessageCircle className="h-4 w-4" />
+                          Chat
                         </Button>
-                      ))}
-                      <Link href={`/dashboard/junior-baker/orders/${order.id}`}>
-                        <Button variant="outline">View Details</Button>
-                      </Link>
+                        
+                        <Link href={`/dashboard/junior-baker/orders/${order.id}`}>
+                          <Button variant="outline">View Details</Button>
+                        </Link>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>

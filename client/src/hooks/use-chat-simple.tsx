@@ -25,28 +25,23 @@ interface ChatParticipant {
 
 export const useSimpleChat = (orderId: number) => {
   const { user } = useAuth();
-  const queryClient = useQueryClient();
-
-  // Fetch existing chat messages from database
+  const queryClient = useQueryClient();  // Fetch existing chat messages from database
   const { data: chatData = [], isLoading } = useQuery({
-    queryKey: ["/api/chats", orderId],
+    queryKey: [`/api/chats/${orderId}`],
     enabled: !!orderId && !!user,
-  });
-
-  // Fetch chat participants
+    staleTime: 5000, // Refetch every 5 seconds for real-time updates
+  });  // Fetch chat participants
   const { data: participantsData = [] } = useQuery<ChatParticipant[]>({
-    queryKey: ["/api/chats", orderId, "participants"],
+    queryKey: [`/api/chats/${orderId}/participants`],
     enabled: !!orderId && !!user,
   });
 
   const sendMessageMutation = useMutation({
     mutationFn: (messageData: { orderId: number; message: string }) =>
-      apiRequest("/api/chats", "POST", messageData),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/chats", orderId] });
+      apiRequest("/api/chats", "POST", messageData),    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/chats/${orderId}`] });
     },
   });
-
   // Process messages to include current user info  
   const processedMessages: ChatMessage[] = Array.isArray(chatData) 
     ? chatData.map((msg: any) => ({
@@ -55,6 +50,16 @@ export const useSimpleChat = (orderId: number) => {
         timestamp: new Date(msg.timestamp)
       }))
     : [];
+
+  // Debug logging
+  console.log(`🔍 Chat hook for order ${orderId}:`, {
+    orderId,
+    userId: user?.id,
+    chatDataRaw: chatData,
+    processedMessages,
+    participantsData,
+    isLoading
+  });
 
   const sendMessage = (message: string) => {
     if (!message.trim()) return;

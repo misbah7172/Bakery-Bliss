@@ -27,6 +27,17 @@ const AddProductPage = () => {
   const [, navigate] = useLocation();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Redirect if not authenticated or not a main baker
+  if (!user) {
+    navigate("/");
+    return null;
+  }
+  
+  if (user.role !== "main_baker") {
+    navigate("/");
+    return null;
+  }
+
   // Form state
   const [formData, setFormData] = useState({
     name: "",

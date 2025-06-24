@@ -44,6 +44,7 @@ const MainBakerOrders = lazy(() => import("@/pages/dashboard/main-baker/orders")
 const MainBakerBakers = lazy(() => import("@/pages/dashboard/main-baker/bakers"));
 const MainBakerQuality = lazy(() => import("@/pages/dashboard/main-baker/quality"));
 const MainBakerChat = lazy(() => import("@/pages/dashboard/main-baker/chat"));
+const MainBakerProducts = lazy(() => import("@/pages/main-baker-products"));
 
 // Admin Dashboard Pages
 const AdminUsers = lazy(() => import("@/pages/admin-users"));
@@ -85,6 +86,7 @@ function App() {
         <Route path="/dashboard/admin" component={DashboardAdmin} />
         <Route path="/dashboard/admin/users" component={AdminUsers} />
         <Route path="/dashboard/admin/applications" component={AdminApplications} />
+        <Route path="/dashboard/main-baker/products" component={MainBakerProducts} />
         
         {/* Customer dashboard pages */}
         <Route path="/dashboard/customer/orders" component={CustomerOrders} />
@@ -104,6 +106,7 @@ function App() {
         <Route path="/dashboard/main-baker/bakers" component={MainBakerBakers} />
         <Route path="/dashboard/main-baker/quality" component={MainBakerQuality} />
         <Route path="/dashboard/main-baker/chat" component={MainBakerChat} />
+        <Route path="/dashboard/main-baker/products" component={MainBakerProducts} />
           {/* Admin dashboard pages */}
         <Route path="/admin/users" component={AdminUsers} />
         <Route path="/admin/applications" component={AdminApplications} />

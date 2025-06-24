@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -36,20 +37,18 @@ interface AdminStats {
 
 export default function AdminDashboard() {
   const { user } = useAuth();
+  const [, navigate] = useLocation();
   const [activeTab, setActiveTab] = useState("overview");
   const queryClient = useQueryClient();
-
-  // Role-based access control
-  if (user && user.role !== 'admin') {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-red-600 mb-4">Access Denied</h1>
-          <p className="text-gray-600 mb-4">You don't have permission to access the Admin Dashboard.</p>
-          <Button onClick={() => window.location.href = '/dashboard'}>Go to Your Dashboard</Button>
-        </div>
-      </div>
-    );
+  // Redirect if not authenticated or not admin
+  if (!user) {
+    navigate("/");
+    return null;
+  }
+  
+  if (user.role !== 'admin') {
+    navigate("/");
+    return null;
   }
 
   // Get admin stats
@@ -57,21 +56,12 @@ export default function AdminDashboard() {
     queryKey: ["/api/admin/stats"],
     enabled: !!user && user.role === "admin"
   });
-
-  // Debug logging
-  console.log("Admin user:", user);
-  console.log("Stats data:", stats);
-  console.log("Stats error:", statsError);
-
   // Get all users for management
   const { data: allUsers, isLoading: usersLoading, error: usersError } = useQuery({
     queryKey: ["/api/admin/users"],
     enabled: !!user && user.role === "admin",
     retry: 1
   });
-
-  console.log("Users data:", allUsers);
-  console.log("Users error:", usersError);
 
   // Get all products for management
   const { data: allProducts, isLoading: productsLoading } = useQuery({

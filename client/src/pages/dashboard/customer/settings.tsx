@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import AppLayout from "@/components/layouts/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -14,8 +15,21 @@ import { Loader2, User, Bell, Lock, CreditCard } from "lucide-react";
 
 const CustomerSettingsPage = () => {
   const { user } = useAuth();
+  const [, navigate] = useLocation();
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
+
+  // Redirect if not authenticated or not a customer
+  if (!user) {
+    navigate("/");
+    return null;
+  }
+  
+  if (user.role !== "customer") {
+    navigate("/");
+    return null;
+  }
+
   const [profileForm, setProfileForm] = useState({
     fullName: user?.fullName || "",
     email: user?.email || "",

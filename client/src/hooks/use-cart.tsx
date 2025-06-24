@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { Product, CustomCake } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 
 interface CartItem {
   id: string;  // Unique identifier: product-{id} or custom-cake-{id}
@@ -15,10 +16,26 @@ interface CartContextType {
   removeFromCart: (itemId: string) => void;
   updateQuantity: (itemId: string, quantity: number) => void;
   clearCart: () => void;
+  clearAnonymousCartData: () => void;
   cartTotal: number;
   isCartOpen: boolean;
   toggleCart: () => void;
 }
+
+// Generate a unique session ID for anonymous users
+const generateSessionId = (): string => {
+  return 'session_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+};
+
+// Get or create session ID for anonymous users
+const getAnonymousSessionId = (): string => {
+  let sessionId = localStorage.getItem("bakeryBlissSessionId");
+  if (!sessionId) {
+    sessionId = generateSessionId();
+    localStorage.setItem("bakeryBlissSessionId", sessionId);
+  }
+  return sessionId;
+};
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
@@ -26,23 +43,51 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
   
-  // Load cart from localStorage on initial render
-  useEffect(() => {
-    const savedCart = localStorage.getItem("bakeryBlissCart");
+  // Get user-specific cart key
+  const getCartKey = (): string => {
+    if (user) {
+      return `bakeryBlissCart_user_${user.id}`;
+    } else {
+      return `bakeryBlissCart_${getAnonymousSessionId()}`;
+    }
+  };
+  
+  // Load cart from localStorage based on user/session
+  const loadCartFromStorage = () => {
+    const cartKey = getCartKey();
+    const savedCart = localStorage.getItem(cartKey);
     if (savedCart) {
       try {
-        setCartItems(JSON.parse(savedCart));
+        const parsedCart = JSON.parse(savedCart);
+        setCartItems(parsedCart);
       } catch (error) {
         console.error("Failed to parse cart from localStorage", error);
+        setCartItems([]);
       }
+    } else {
+      setCartItems([]);
     }
-  }, []);
+  };
+  
+  // Save cart to localStorage with user/session specific key
+  const saveCartToStorage = (items: CartItem[]) => {
+    const cartKey = getCartKey();
+    localStorage.setItem(cartKey, JSON.stringify(items));
+  };
+  
+  // Load cart when component mounts or user changes
+  useEffect(() => {
+    loadCartFromStorage();
+  }, [user]); // Re-load cart when user changes (login/logout)
   
   // Save cart to localStorage whenever it changes
   useEffect(() => {
-    localStorage.setItem("bakeryBlissCart", JSON.stringify(cartItems));
-  }, [cartItems]);
+    if (cartItems.length > 0 || user) { // Always save for authenticated users, even if empty
+      saveCartToStorage(cartItems);
+    }
+  }, [cartItems, user]);
   
   const toggleCart = () => {
     setIsCartOpen(prev => !prev);
@@ -119,14 +164,30 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
       )
     );
   };
-  
-  const clearCart = () => {
+    const clearCart = () => {
     setCartItems([]);
     toast({
       title: "Cart cleared",
       description: "All items have been removed from your cart",
     });
   };
+  
+  // Clear anonymous cart data when user logs out (optional cleanup)
+  const clearAnonymousCartData = () => {
+    const sessionId = localStorage.getItem("bakeryBlissSessionId");
+    if (sessionId) {
+      localStorage.removeItem(`bakeryBlissCart_${sessionId}`);
+      localStorage.removeItem("bakeryBlissSessionId");
+    }
+  };
+  
+  // When user logs out, clear their cart and cleanup anonymous data
+  useEffect(() => {
+    if (!user) {
+      // User logged out, clear the cart but keep anonymous session for potential future use
+      setCartItems([]);
+    }
+  }, [user]);
   
   // Calculate cart total
   const cartTotal = cartItems.reduce((total, item) => {
@@ -138,8 +199,7 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
     
     return total + (itemPrice * item.quantity);
   }, 0);
-  
-  return (
+    return (
     <CartContext.Provider
       value={{
         cartItems,
@@ -147,6 +207,7 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
         removeFromCart,
         updateQuantity,
         clearCart,
+        clearAnonymousCartData,
         cartTotal,
         isCartOpen,
         toggleCart,

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -16,8 +16,48 @@ const Register = () => {
     fullName: "",
   });
   const [passwordError, setPasswordError] = useState("");
-  const { register, loading, error } = useAuth();
+  const { register, loading, error, user } = useAuth();
   const [, navigate] = useLocation();
+  
+  // Redirect if user is already logged in
+  useEffect(() => {
+    if (user && !loading) {
+      // Redirect based on user role
+      switch (user.role) {
+        case "customer":
+          navigate("/dashboard/customer");
+          break;
+        case "junior_baker":
+          navigate("/dashboard/junior-baker");
+          break;
+        case "main_baker":
+          navigate("/dashboard/main-baker");
+          break;
+        case "admin":
+          navigate("/dashboard/admin");
+          break;
+        default:
+          navigate("/");
+      }
+    }
+  }, [user, loading, navigate]);
+  
+  // Show loading spinner while checking authentication
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-r from-accent to-primary/20 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
+          <p className="text-foreground/70">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  // Don't render register form if user is authenticated
+  if (user) {
+    return null; // Will redirect in useEffect
+  }
   
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;

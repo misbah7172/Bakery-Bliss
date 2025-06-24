@@ -84,6 +84,7 @@ export const customCakes = pgTable("custom_cakes", {
   message: text("message"),
   specialInstructions: text("special_instructions"),
   totalPrice: real("total_price").notNull(),
+  mainBakerId: integer("main_baker_id").references(() => users.id), // Selected main baker for custom cake
   createdAt: timestamp("created_at").defaultNow(),
   isSaved: boolean("is_saved").default(false),
 });

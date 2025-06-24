@@ -36,20 +36,38 @@ export default function CheckoutPage() {
     zipCode: "",
     paymentMethod: "cash",
   });  useEffect(() => {
+    console.log("🔄 Checkout page effect triggered");
+    console.log("📊 Auth loading:", loading);
+    console.log("👤 User:", user);
+    console.log("🛒 Cart items count:", cartItems.length);
+    
     // Don't redirect while auth is still loading
     if (loading) {
+      console.log("⏳ Auth still loading, waiting...");
       return;
     }
 
     if (!user) {
+      console.log("❌ No user found, redirecting to login");
       setLocation("/login");
       return;
     }
 
+    // Only customers can access checkout
+    if (user.role !== "customer") {
+      console.log("🚫 Non-customer user attempting checkout, redirecting to home");
+      toast.error("Access denied: Only customers can checkout");
+      setLocation("/");
+      return;
+    }
+
     if (cartItems.length === 0) {
+      console.log("🛒 Empty cart, redirecting to products");
       setLocation("/products");
       return;
     }
+    
+    console.log("✅ Checkout access granted");
   }, [user, loading, cartItems, setLocation]);
 
   const handleInputChange = (
@@ -60,15 +78,28 @@ export default function CheckoutPage() {
       ...prev,
       [name]: value,
     }));
-  };
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    console.log("Form submitted!");
-    console.log("Form data:", formData);
-    console.log("Cart items:", cartItems);
-    console.log("Cart total:", cartTotal);
+  };  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();    console.log("🚀 Form submitted!");
+    console.log("📋 Form data:", formData);
+    console.log("🛒 Cart items:", cartItems);
+    console.log("💰 Cart total:", cartTotal);
+    console.log("👤 User:", user);
     
-    setIsSubmitting(true);    if (!user) {
+    // Early validation checks
+    if (cartItems.length === 0) {
+      console.log("❌ No items in cart");
+      toast.error("Your cart is empty. Please add items before checkout.");
+      setLocation("/products");
+      return;
+    }
+    
+    if (cartTotal <= 0) {
+      console.log("❌ Invalid cart total:", cartTotal);
+      toast.error("Invalid cart total. Please refresh and try again.");
+      return;
+    }
+    
+    setIsSubmitting(true);if (!user) {
       toast.error("Please log in to place an order");
       setLocation("/login");
       return;
@@ -90,9 +121,8 @@ export default function CheckoutPage() {
       toast.error("Please enter a valid email address");
       setIsSubmitting(false);
       return;
-    }
-
-    try {      // Show loading state to user
+    }    try {      // Show loading state to user
+      console.log("🔄 Processing order...");
       toast.loading("Processing your order...", {
         description: "Please wait while we process your payment and submit your order.",
       });
@@ -113,14 +143,13 @@ export default function CheckoutPage() {
         toast.error("No valid items in cart. Please add some products before checking out.");
         setIsSubmitting(false);
         return;
-      }
-
-      // Log the data we're sending to help troubleshoot
-      console.log("Sending order data:", JSON.stringify({
+      }      // Log the data we're sending to help troubleshoot
+      console.log("📤 Sending order data:", JSON.stringify({
         items: orderItems,
         totalAmount: Number(cartTotal.toFixed(2)),
         shippingInfo: formData
       }, null, 2));      // Make sure we're sending a proper totalAmount as a number
+      console.log("🌐 Making API request to /api/orders...");
       const response = await apiRequest("/api/orders", "POST", {
         items: orderItems,
         totalAmount: Number(cartTotal.toFixed(2)), // Ensure it's a number
@@ -137,27 +166,8 @@ export default function CheckoutPage() {
         }
       });
 
-      if (!response.ok) {
-        // Try to get the error message from the response
-        let errorMessage = "Failed to place order. Please try again.";
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorMessage;
-          
-          if (errorData.errors) {
-            // If we have validation errors, show details
-            errorMessage += `: ${errorData.errors[0]?.message || 'Validation error'}`;
-          }
-        } catch (e) {
-          console.error("Could not parse error response:", e);
-        }
-        
-        toast.error(errorMessage);
-        setIsSubmitting(false);
-        return;
-      }
-
       const data = await response.json();
+      console.log("✅ Order created successfully:", data);
       clearCart();
       toast.success("Order placed successfully! Thank you for shopping with Bakery Bliss.");
       
@@ -169,11 +179,11 @@ export default function CheckoutPage() {
       } else {
         // Fallback if we don't have an ID
         setLocation(`/orders`);
-      }
-    } catch (error) {
-      console.error("Error creating order:", error);
+      }    } catch (error) {
+      console.error("❌ Error creating order:", error);
       toast.error(error instanceof Error ? error.message : "Something went wrong while processing your order. Please try again.");
     } finally {
+      console.log("🏁 Order submission process completed");
       setIsSubmitting(false);
     }
   };  if (loading) {
@@ -288,11 +298,11 @@ export default function CheckoutPage() {
                   <option value="cash">Cash on Delivery</option>
                   <option value="card">Credit/Debit Card</option>
                 </select>
-              </div>
-              <Button
+              </div>              <Button
                 type="submit"
                 className="w-full"
                 disabled={isSubmitting}
+                onClick={() => console.log("🔘 Place Order button clicked!")}
               >
                 {isSubmitting ? "Processing..." : "Place Order"}
               </Button>

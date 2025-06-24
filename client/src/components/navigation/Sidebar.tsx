@@ -35,9 +35,9 @@ const Sidebar = ({ type }: SidebarProps) => {
       { label: "My Tasks", href: "/dashboard/junior-baker/tasks", icon: ClipboardList },
       { label: "Chat", href: "/dashboard/junior-baker/chat", icon: MessageCircle },
       { label: "Completed Orders", href: "/dashboard/junior-baker/completed", icon: ShoppingBag },
-    ],
-    main: [
+    ],    main: [
       { label: "Dashboard", href: "/dashboard/main-baker", icon: LayoutDashboard },
+      { label: "My Products", href: "/dashboard/main-baker/products", icon: ShoppingBag },
       { label: "Order Management", href: "/dashboard/main-baker/orders", icon: ClipboardList },
       { label: "Baker Management", href: "/dashboard/main-baker/bakers", icon: User },
       { label: "Quality Control", href: "/dashboard/main-baker/quality", icon: Sliders },
@@ -78,40 +78,38 @@ const Sidebar = ({ type }: SidebarProps) => {
           <p className="text-xs text-foreground/70">{getRoleDisplayName()}</p>
         </div>
       )}
-      
-      <div className="flex flex-col space-y-1">
+        <div className="flex flex-col space-y-1">
         {links.map((link) => {
           const Icon = link.icon;
           const isActive = location === link.href;
           
           return (
             <Link key={link.href} href={link.href}>
-              <a className={`flex items-center py-2 px-4 rounded-lg ${
+              <div className={`flex items-center py-2 px-4 rounded-lg cursor-pointer ${
                 isActive 
                   ? "bg-primary text-white" 
                   : "text-foreground hover:bg-accent hover:bg-opacity-30 transition-all"
               } font-poppins`}>
                 <Icon className={`h-5 w-5 mr-3 ${isActive ? "text-white" : ""}`} />
                 <span className="text-sm">{link.label}</span>
-              </a>
+              </div>
             </Link>
           );
         })}
       </div>
       
-      <div className="mt-6 pt-6 border-t border-accent">
-        <div className="flex flex-col space-y-1">
+      <div className="mt-6 pt-6 border-t border-accent">        <div className="flex flex-col space-y-1">
           <Link href="/profile">
-            <a className="flex items-center py-2 px-4 rounded-lg text-foreground hover:bg-accent hover:bg-opacity-30 transition-all font-poppins">
+            <div className="flex items-center py-2 px-4 rounded-lg text-foreground hover:bg-accent hover:bg-opacity-30 transition-all font-poppins cursor-pointer">
               <UserCircle className="h-5 w-5 mr-3" />
               <span className="text-sm">Profile</span>
-            </a>
+            </div>
           </Link>
           <Link href="/settings">
-            <a className="flex items-center py-2 px-4 rounded-lg text-foreground hover:bg-accent hover:bg-opacity-30 transition-all font-poppins">
+            <div className="flex items-center py-2 px-4 rounded-lg text-foreground hover:bg-accent hover:bg-opacity-30 transition-all font-poppins cursor-pointer">
               <Settings className="h-5 w-5 mr-3" />
               <span className="text-sm">Settings</span>
-            </a>
+            </div>
           </Link>
           <Button 
             onClick={logout}

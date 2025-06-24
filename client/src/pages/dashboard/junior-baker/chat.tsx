@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import AppLayout from "@/components/layouts/AppLayout";
@@ -21,6 +21,15 @@ interface AssignedOrder {
 const JuniorBakerChat = () => {
   const { user } = useAuth();
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+
+  // Get order ID from URL parameters
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const orderParam = urlParams.get('order');
+    if (orderParam) {
+      setSelectedOrderId(parseInt(orderParam));
+    }
+  }, []);
 
   // Role-based access control
   if (user && user.role !== 'junior_baker') {

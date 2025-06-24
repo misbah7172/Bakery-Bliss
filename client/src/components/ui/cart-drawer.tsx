@@ -41,8 +41,7 @@ const CartDrawer = () => {
 
   return (
     <Sheet open={isCartOpen} onOpenChange={toggleCart}>
-      <SheetContent className="w-full sm:max-w-md flex flex-col">
-        <SheetHeader className="space-y-1.5 pb-6">
+      <SheetContent className="w-full sm:max-w-md flex flex-col">        <SheetHeader className="space-y-1.5 pb-6">
           <SheetTitle className="flex items-center">
             <ShoppingBag className="mr-2 h-5 w-5" />
             Your Cart
@@ -51,6 +50,11 @@ const CartDrawer = () => {
             {cartItems.length > 0 
               ? `You have ${cartItems.length} item${cartItems.length > 1 ? 's' : ''} in your cart`
               : 'Your cart is empty'}
+            {user && (
+              <div className="text-xs text-muted-foreground mt-1">
+                Shopping as: {user.fullName || user.username}
+              </div>
+            )}
           </SheetDescription>
         </SheetHeader>
 

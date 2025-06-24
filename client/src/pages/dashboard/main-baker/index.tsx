@@ -65,6 +65,17 @@ const MainBakerDashboard = () => {
   const [assigningOrderId, setAssigningOrderId] = useState<number | null>(null);
   const [selectedBakerId, setSelectedBakerId] = useState<string>("");
   
+  // Redirect if not authenticated or not a main baker
+  if (!user) {
+    navigate("/");
+    return null;
+  }
+  
+  if (user.role !== "main_baker") {
+    navigate("/");
+    return null;
+  }
+  
   // Log user and dashboardData for debugging
   // (dashboardData will be defined after the useQuery below)
   // Fetch main baker's dashboard data
@@ -80,31 +91,9 @@ const MainBakerDashboard = () => {
     queryFn: getQueryFn({ on401: "throw" }),
     enabled: !!user && user.role === "main_baker",
   });
-
   console.log('user:', user);
   console.log('dashboardData:', dashboardData);
 
-  // Error handling for user authentication and role
-  if (!user) {
-    return (
-      <AppLayout showSidebar={true} sidebarType="main">
-        <div className="flex flex-col items-center justify-center h-64 text-red-600">
-          <h2 className="text-xl font-bold mb-2">Not authenticated</h2>
-          <p>You must be logged in to view this page.</p>
-        </div>
-      </AppLayout>
-    );
-  }
-  if (user.role !== "main_baker") {
-    return (
-      <AppLayout showSidebar={true} sidebarType="main">
-        <div className="flex flex-col items-center justify-center h-64 text-red-600">
-          <h2 className="text-xl font-bold mb-2">Not authorized</h2>
-          <p>You do not have permission to view this page.</p>
-        </div>
-      </AppLayout>
-    );
-  }
   if (dashboardError || juniorBakersError) {
     return (
       <AppLayout showSidebar={true} sidebarType="main">
