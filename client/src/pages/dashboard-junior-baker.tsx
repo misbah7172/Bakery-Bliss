@@ -14,6 +14,7 @@ import DirectChat from "@/components/ui/direct-chat";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import BakerEarnings from "@/components/BakerEarnings";
 
 interface DashboardData {
   assignedOrders?: number;

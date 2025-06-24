@@ -1,4 +1,4 @@
-import { pgTable, foreignKey, serial, integer, text, timestamp, unique, real, boolean, pgEnum } from "drizzle-orm/pg-core"
+import { pgTable, foreignKey, serial, integer, text, timestamp, unique, real, boolean, pgEnum, decimal } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 
 export const orderStatus = pgEnum("order_status", ['pending', 'processing', 'quality_check', 'ready', 'delivered', 'cancelled'])
@@ -316,4 +316,26 @@ export const bakerTeams = pgTable("baker_teams", {
 			foreignColumns: [users.id],
 			name: "baker_teams_junior_baker_id_users_id_fk"
 		}),
+]);
+
+export const bakerEarnings = pgTable("baker_earnings", {
+  id: serial().primaryKey().notNull(),
+  orderId: integer("order_id").notNull(),
+  bakerId: integer("baker_id").notNull(),
+  bakerType: text("baker_type").notNull(), // 'main_baker' or 'junior_baker'
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  percentage: decimal("percentage", { precision: 5, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at", { mode: 'string' }).defaultNow(),
+}, (table) => [
+  foreignKey({
+    columns: [table.orderId],
+    foreignColumns: [orders.id],
+    name: "baker_earnings_order_id_orders_id_fk"
+  }),
+  foreignKey({
+    columns: [table.bakerId],
+    foreignColumns: [users.id],
+    name: "baker_earnings_baker_id_users_id_fk"
+  }),
+  unique("baker_earnings_order_baker_type_unique").on(table.orderId, table.bakerId, table.bakerType),
 ]);

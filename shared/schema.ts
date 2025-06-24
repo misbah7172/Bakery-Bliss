@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, real, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, real, timestamp, pgEnum, decimal } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -185,6 +185,17 @@ export const reviews = pgTable("reviews", {
   updatedAt: timestamp("updated_at").defaultNow()
 });
 
+// Baker earnings table  
+export const bakerEarnings = pgTable("baker_earnings", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").notNull().references(() => orders.id),
+  bakerId: integer("baker_id").notNull().references(() => users.id),
+  bakerType: text("baker_type").notNull(), // 'main_baker' or 'junior_baker'
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  percentage: decimal("percentage", { precision: 5, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Create insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertProductSchema = createInsertSchema(products).omit({ id: true, createdAt: true });
@@ -201,6 +212,7 @@ export const insertChatParticipantSchema = createInsertSchema(chatParticipants).
 export const insertBakerApplicationSchema = createInsertSchema(bakerApplications).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertBakerTeamSchema = createInsertSchema(bakerTeams).omit({ id: true, assignedAt: true });
 export const insertReviewSchema = createInsertSchema(reviews).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertBakerEarningSchema = createInsertSchema(bakerEarnings).omit({ id: true, createdAt: true });
 
 // Define types
 export type User = typeof users.$inferSelect;
@@ -247,3 +259,6 @@ export type InsertShippingInfo = z.infer<typeof insertShippingInfoSchema>;
 
 export type Review = typeof reviews.$inferSelect;
 export type InsertReview = z.infer<typeof insertReviewSchema>;
+
+export type BakerEarning = typeof bakerEarnings.$inferSelect;
+export type InsertBakerEarning = z.infer<typeof insertBakerEarningSchema>;

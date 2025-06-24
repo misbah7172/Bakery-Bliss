@@ -4,8 +4,9 @@ import AppLayout from "@/components/layouts/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, Clock, Star, Package, Calendar } from "lucide-react";
+import { CheckCircle, Clock, Star, Calendar, DollarSign } from "lucide-react";
 import { format } from "date-fns";
+import BakerEarnings from "@/components/BakerEarnings";
 
 interface CompletedOrder {
   id: number;
@@ -17,6 +18,22 @@ interface CompletedOrder {
   rating: number | null;
   feedback: string | null;
   duration: number; // hours taken to complete
+}
+
+interface EarningsBreakdown {
+  orderId: number;
+  amount: string;
+  percentage: string;
+  bakerType: string;
+  createdAt: string;
+  orderNumber: string;
+  orderTotal: string;
+}
+
+interface EarningsData {
+  bakerId: number;
+  totalEarnings: number;
+  earningsBreakdown: EarningsBreakdown[];
 }
 
 const JuniorBakerCompleted = () => {
@@ -35,19 +52,33 @@ const JuniorBakerCompleted = () => {
         </div>
       </AppLayout>
     );
-  }
-  // Fetch completed orders
+  }  // Fetch completed orders
   const { data: completedOrders = [], isLoading } = useQuery<CompletedOrder[]>({
     queryKey: ["/api/junior-baker/completed-orders"],
     enabled: !!user,
   });
 
-  // Calculate statistics
+  // Fetch earnings data to get actual earnings per order
+  const { data: earnings } = useQuery<EarningsData>({
+    queryKey: ["/api/my-earnings"],
+    enabled: !!user,
+  });
+
+  // Create a map of order number to earnings amount for quick lookup
+  const earningsMap = new Map<string, { amount: number; percentage: string }>();
+  if (earnings?.earningsBreakdown) {
+    earnings.earningsBreakdown.forEach(earning => {
+      earningsMap.set(earning.orderNumber, {
+        amount: parseFloat(earning.amount),
+        percentage: earning.percentage
+      });
+    });
+  }
+  // Calculate statistics (without earnings - handled by BakerEarnings component)
   const totalOrders = completedOrders.length;
   const averageRating = completedOrders.length > 0 
     ? completedOrders.reduce((sum, order) => sum + (order.rating || 0), 0) / completedOrders.filter(order => order.rating).length 
     : 0;
-  const totalEarnings = completedOrders.reduce((sum, order) => sum + order.total, 0);
   const averageCompletionTime = completedOrders.length > 0
     ? completedOrders.reduce((sum, order) => sum + order.duration, 0) / completedOrders.length
     : 0;
@@ -91,10 +122,8 @@ const JuniorBakerCompleted = () => {
           <p className="text-gray-600">
             View your completed orders, customer feedback, and performance statistics.
           </p>
-        </div>
-
-        {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        </div>        {/* Performance Statistics Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center">
@@ -124,28 +153,20 @@ const JuniorBakerCompleted = () => {
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center">
-                <Package className="h-8 w-8 text-blue-600" />
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Total Value</p>
-                  <p className="text-2xl font-bold text-gray-900">${totalEarnings.toFixed(2)}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center">
                 <Clock className="h-8 w-8 text-purple-600" />
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Avg. Time</p>
+                  <p className="text-sm font-medium text-gray-600">Avg. Completion Time</p>
                   <p className="text-2xl font-bold text-gray-900">
                     {averageCompletionTime > 0 ? `${averageCompletionTime.toFixed(1)}h` : 'N/A'}
                   </p>
                 </div>
               </div>
             </CardContent>
-          </Card>
+          </Card></div>
+
+        {/* Baker Earnings Section */}
+        <div className="mb-8">
+          <BakerEarnings />
         </div>
 
         {/* Completed Orders List */}
@@ -188,9 +209,7 @@ const JuniorBakerCompleted = () => {
                         <Calendar className="h-4 w-4 mr-1" />
                         {format(new Date(order.completedAt), 'PPP')}
                       </div>
-                    </div>
-
-                    <div>
+                    </div>                    <div>
                       <p className="text-sm font-medium text-gray-900">Duration:</p>
                       <p className="text-sm text-gray-600">{order.duration} hours</p>
                     </div>
@@ -199,6 +218,22 @@ const JuniorBakerCompleted = () => {
                       <p className="text-sm font-medium text-gray-900">Order Value:</p>
                       <p className="text-sm text-gray-600">${order.total.toFixed(2)}</p>
                     </div>
+
+                    {/* Show actual earnings for this order */}
+                    {earningsMap.has(order.orderNumber) && (
+                      <div className="bg-green-50 p-3 rounded-lg border border-green-200">
+                        <div className="flex items-center mb-1">
+                          <DollarSign className="h-4 w-4 text-green-600 mr-1" />
+                          <p className="text-sm font-medium text-green-800">Your Earnings:</p>
+                        </div>
+                        <p className="text-lg font-bold text-green-700">
+                          ${earningsMap.get(order.orderNumber)!.amount.toFixed(2)}
+                        </p>
+                        <p className="text-xs text-green-600">
+                          {earningsMap.get(order.orderNumber)!.percentage}% of order value
+                        </p>
+                      </div>
+                    )}
                     
                     {order.items && order.items.length > 0 && (
                       <div>

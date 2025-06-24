@@ -8,6 +8,13 @@
       "when": 1750354273801,
       "tag": "0000_bright_multiple_man",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1750794714489,
+      "tag": "0001_bouncy_cobalt_man",
+      "breakpoints": true
     }
   ]
 }

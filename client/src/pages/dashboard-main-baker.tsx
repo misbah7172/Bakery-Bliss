@@ -40,6 +40,7 @@ import {
 import { formatCurrency } from "@/lib/utils";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import BakerEarnings from "@/components/BakerEarnings";
 
 interface Order {
   id: number;
@@ -429,7 +430,11 @@ export default function MainBakerDashboard() {
                   </div>
                 )}
               </CardContent>
-            </Card>
+            </Card>          </div>
+
+          {/* Earnings Section */}
+          <div className="col-span-2">
+            <BakerEarnings />
           </div>
 
           {/* Team & Applications */}

@@ -4,6 +4,9 @@ import { storage } from "./storage";
 import bcrypt from "bcryptjs";
 import session from "express-session";
 import { z } from "zod";
+import { db } from "./db";
+import { orders, orderItems, products, customCakes } from "../drizzle/schema";
+import { eq } from "drizzle-orm";
 import {
   insertUserSchema,
   insertProductSchema,
@@ -378,15 +381,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Internal server error" });
     }
   });  // ===== ORDER ROUTES =====
-  
-  // Get user's orders
+    // Get user's orders
   app.get("/api/orders", authenticate, async (req, res) => {
     try {
       let orders;
       
       // Different query based on role
       if (req.user.role === 'customer') {
-        orders = await storage.getUserOrders(req.user.id);
+        orders = await storage.getUserOrdersWithDetails(req.user.id);
       } else if (req.user.role === 'junior_baker') {
         orders = await storage.getJuniorBakerOrders(req.user.id);
       } else if (req.user.role === 'main_baker') {
@@ -1381,6 +1383,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching assigned orders for chat:", error);
       res.status(500).json({ message: "Internal server error" });
+    }  });
+
+  // Get main bakers that a junior baker can chat with
+  app.get("/api/junior-baker/main-bakers", authenticate, authorize(['junior_baker']), async (req, res) => {
+    try {
+      const juniorBakerId = req.user!.id;
+      console.log(`🔍 Fetching main bakers for junior baker ${juniorBakerId}`);
+      
+      // Get the junior baker's main baker and all main bakers
+      const juniorBaker = await storage.getUserById(juniorBakerId);
+      if (!juniorBaker) {
+        return res.status(404).json({ message: "Junior baker not found" });
+      }
+
+      const mainBakers = await db.select({
+        id: users.id,
+        fullName: users.fullName,
+        email: users.email,
+        profileImage: users.profileImage
+      })
+      .from(users)
+      .where(eq(users.role, 'main_baker'));
+
+      console.log(`📋 Found ${mainBakers.length} main bakers`);
+      res.json(mainBakers);
+    } catch (error) {
+      console.error("Error fetching main bakers for junior baker chat:", error);
+      res.status(500).json({ message: "Internal server error" });
     }
   });
 
@@ -1464,7 +1494,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Internal server error" });
     }
   });
-
   // Mark order as delivered (customer only)
   app.patch("/api/orders/:orderId/delivered", authenticate, authorize(['customer']), async (req, res) => {
     try {
@@ -1488,6 +1517,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update order status to delivered
       await storage.updateOrderStatus(parseInt(orderId), 'delivered');
       
+      // Automatically distribute payment to bakers
+      try {
+        const { BakerPaymentService } = await import('./baker-payment');
+        const paymentDistribution = await BakerPaymentService.distributeOrderPayment(parseInt(orderId));
+        
+        if (paymentDistribution) {
+          console.log(`💰 Payment distributed for order ${orderId}:`, paymentDistribution);
+        }
+      } catch (paymentError) {
+        console.error(`❌ Error distributing payment for order ${orderId}:`, paymentError);
+        // Continue with the response even if payment distribution fails
+      }
+      
       console.log(`Order ${orderId} marked as delivered by customer ${userId}`);
       
       res.json({ message: "Order marked as delivered successfully" });
@@ -1495,7 +1537,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Error marking order as delivered:", error);
       res.status(500).json({ message: "Internal server error" });
     }
-  });  // Get completed orders with reviews for junior baker
+  });// Get completed orders with reviews for junior baker
   app.get("/api/junior-baker/completed-orders", authenticate, authorize(['junior_baker']), async (req, res) => {
     try {
       const juniorBakerId = req.user!.id;
@@ -1518,8 +1560,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching main baker personal orders:", error);
       res.status(500).json({ message: "Internal server error" });
-    }
-  });
+    }  });
+
   // Get main baker's orders (for order management page)
   app.get("/api/main-baker/orders", authenticate, authorize(['main_baker']), async (req, res) => {
     try {
@@ -1532,7 +1574,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`📊 Main baker orders for user ${mainBakerId}:`, rawOrders.length, 'orders found');
       
       // Transform orders to match frontend expectations
-      const orders = await Promise.all(rawOrders.map(async (order) => {        // Get customer name from order items or user
+      const orders = await Promise.all(rawOrders.map(async (order) => {
+        // Get customer name from order items or user
         let customerName = 'Unknown Customer';
         try {
           if (order.userId) {
@@ -1557,20 +1600,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.log('Error getting baker:', e);
           }
         }
+          // Get actual order items
+        let items: string[] = [];
+        try {
+          const itemsData = await db.select({
+            quantity: orderItems.quantity,
+            productName: products.name,
+            customCakeName: customCakes.name
+          })
+          .from(orderItems)
+          .leftJoin(products, eq(orderItems.productId, products.id))
+          .leftJoin(customCakes, eq(orderItems.customCakeId, customCakes.id))
+          .where(eq(orderItems.orderId, order.id));
+
+          items = itemsData.map(item => {
+            const name = item.productName || item.customCakeName || 'Unknown Item';
+            return `${name} (${item.quantity})`;
+          });        } catch (e) {
+          console.log('Error getting order items:', e);
+          items = ['Items not available'];
+        }
+
+        // Calculate priority based on deadline and creation time
+        const now = new Date();
+        const createdAt = order.createdAt ? new Date(order.createdAt) : new Date();
+        const deadline = order.deadline ? new Date(order.deadline) : null;
         
-        // Get order items (simplified for now)
-        const items = ['Items details']; // TODO: Get actual items
-          return {
+        let priority: 'low' | 'medium' | 'high' = 'medium';
+        
+        if (deadline) {
+          const timeToDeadline = deadline.getTime() - now.getTime();
+          const daysSinceCreated = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24);
+          
+          // High priority: deadline within 1 day or order older than 3 days
+          if (timeToDeadline < (24 * 60 * 60 * 1000) || daysSinceCreated > 3) {
+            priority = 'high';
+          }
+          // Low priority: deadline more than 3 days away and order is new
+          else if (timeToDeadline > (3 * 24 * 60 * 60 * 1000) && daysSinceCreated < 1) {
+            priority = 'low';          }
+        }
+
+        return {
           id: order.id,
           orderNumber: order.orderId,
           status: order.status,
-          priority: 'medium' as const, // TODO: Add priority logic
+          priority,
           customerName,
           assignedBaker,
           items,
           total: order.totalAmount,
           createdAt: order.createdAt,
-          dueDate: order.deadline
+          dueDate: order.deadline || order.createdAt // Fallback to createdAt if no deadline
         };
       }));
       
@@ -1579,7 +1660,113 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Error fetching main baker orders:", error);
       res.status(500).json({ message: "Internal server error" });
     }
-  });  // Get junior bakers with detailed stats for baker management
+  });
+
+  // Get main baker orders with chat information
+  app.get("/api/main-baker/orders-with-chat", authenticate, authorize(['main_baker']), async (req, res) => {
+    try {
+      const mainBakerId = req.user!.id;
+      console.log(`🔍 Fetching orders with chat for main baker ${mainBakerId}`);
+      
+      // Get all orders for this main baker
+      const rawOrders = await storage.getMainBakerOrders(mainBakerId);
+      
+      // Transform orders to include chat information
+      const ordersWithChat = await Promise.all(rawOrders.map(async (order) => {
+        // Get customer name
+        let customerName = 'Unknown Customer';
+        try {
+          if (order.userId) {
+            const customer = await storage.getUserById(order.userId);
+            if (customer) {
+              customerName = customer.fullName;
+            }
+          }
+        } catch (e) {
+          console.log('Error getting customer:', e);
+        }
+
+        // Get junior baker name if assigned
+        let juniorBakerName = null;
+        if (order.juniorBakerId) {
+          try {
+            const baker = await storage.getUserById(order.juniorBakerId);
+            if (baker) {
+              juniorBakerName = baker.fullName;
+            }
+          } catch (e) {
+            console.log('Error getting junior baker:', e);
+          }
+        }
+
+        // Get order items
+        let items: any[] = [];
+        try {
+          const itemsData = await db.select({
+            id: orderItems.id,
+            quantity: orderItems.quantity,
+            productName: products.name,
+            customCakeName: customCakes.name,
+            pricePerItem: orderItems.pricePerItem
+          })
+          .from(orderItems)
+          .leftJoin(products, eq(orderItems.productId, products.id))
+          .leftJoin(customCakes, eq(orderItems.customCakeId, customCakes.id))
+          .where(eq(orderItems.orderId, order.id));
+
+          items = itemsData.map(item => ({
+            id: item.id,
+            name: item.productName || item.customCakeName || 'Unknown Item',
+            quantity: item.quantity,
+            price: item.pricePerItem
+          }));
+        } catch (e) {
+          console.log('Error getting order items:', e);
+        }
+
+        // Check if there are any chats for this order
+        let hasActiveChat = false;
+        let unreadMessages = 0;
+        try {
+          const chats = await storage.getChatsByOrderId(order.id);
+          hasActiveChat = chats.length > 0;
+          // Count unread messages (messages not from the main baker)
+          unreadMessages = chats.filter(chat => 
+            chat.senderId !== mainBakerId && !chat.isRead
+          ).length;
+        } catch (e) {
+          console.log('Error getting chats:', e);
+        }
+
+        return {
+          id: order.id,
+          orderNumber: order.orderId,
+          status: order.status,
+          customerName,
+          juniorBakerName,
+          items,
+          total: order.totalAmount,
+          createdAt: order.createdAt,
+          hasActiveChat,
+          unreadMessages
+        };
+      }));
+
+      // Sort by orders with active chats first, then by creation date
+      ordersWithChat.sort((a, b) => {
+        if (a.hasActiveChat && !b.hasActiveChat) return -1;
+        if (!a.hasActiveChat && b.hasActiveChat) return 1;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+
+      res.json(ordersWithChat);
+    } catch (error) {
+      console.error("Error fetching main baker orders with chat:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get junior bakers with detailed stats for baker management
   app.get("/api/main-baker/junior-bakers", authenticate, authorize(['main_baker']), async (req, res) => {
     try {
       const mainBakerId = req.user!.id;
@@ -1667,6 +1854,89 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     } catch (error) {
       console.error("Error checking application status:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // ===== BAKER EARNINGS ROUTES =====
+  
+  // Get baker's total earnings
+  app.get("/api/baker/:bakerId/earnings", authenticate, authorize(['main_baker', 'junior_baker', 'admin']), async (req, res) => {
+    try {
+      const { bakerId } = req.params;
+      const userId = req.user!.id;
+      
+      // Users can only view their own earnings unless they're admin
+      if (req.user!.role !== 'admin' && parseInt(bakerId) !== userId) {
+        return res.status(403).json({ message: "You can only view your own earnings" });
+      }
+      
+      const { BakerPaymentService } = await import('./baker-payment');
+      const totalEarnings = await BakerPaymentService.getBakerTotalEarnings(parseInt(bakerId));
+      const earningsBreakdown = await BakerPaymentService.getBakerEarningsBreakdown(parseInt(bakerId));
+      
+      res.json({
+        bakerId: parseInt(bakerId),
+        totalEarnings,
+        earningsBreakdown
+      });
+    } catch (error) {
+      console.error("Error fetching baker earnings:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get current user's earnings (shortcut endpoint)
+  app.get("/api/my-earnings", authenticate, authorize(['main_baker', 'junior_baker']), async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      
+      const { BakerPaymentService } = await import('./baker-payment');
+      const totalEarnings = await BakerPaymentService.getBakerTotalEarnings(userId);
+      const earningsBreakdown = await BakerPaymentService.getBakerEarningsBreakdown(userId);
+      
+      res.json({
+        bakerId: userId,
+        totalEarnings,
+        earningsBreakdown
+      });
+    } catch (error) {
+      console.error("Error fetching user earnings:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get all bakers earnings summary (admin only)
+  app.get("/api/admin/bakers/earnings", authenticate, authorize(['admin']), async (req, res) => {
+    try {
+      const { BakerPaymentService } = await import('./baker-payment');
+      const earningsSummary = await BakerPaymentService.getAllBakersEarningsSummary();
+      
+      res.json(earningsSummary);
+    } catch (error) {
+      console.error("Error fetching all bakers earnings:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Manually distribute payment for a specific order (admin only)
+  app.post("/api/admin/orders/:orderId/distribute-payment", authenticate, authorize(['admin']), async (req, res) => {
+    try {
+      const { orderId } = req.params;
+      
+      const { BakerPaymentService } = await import('./baker-payment');
+      const paymentDistribution = await BakerPaymentService.distributeOrderPayment(parseInt(orderId));
+      
+      if (!paymentDistribution) {
+        return res.status(400).json({ message: "Payment could not be distributed (order may not be delivered or already processed)" });
+      }
+      
+      res.json({
+        message: "Payment distributed successfully",
+        distribution: paymentDistribution
+      });
+    } catch (error) {
+      console.error("Error manually distributing payment:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });

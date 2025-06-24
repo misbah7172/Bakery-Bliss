@@ -345,15 +345,16 @@ export class DatabaseStorage implements IStorage {
     .leftJoin(users, eq(orders.userId, users.id))
     .leftJoin(shippingInfo, eq(orders.id, shippingInfo.orderId))
     .where(eq(orders.userId, userId))
-    .orderBy(desc(orders.createdAt));
-
-    // Get order items for each order
+    .orderBy(desc(orders.createdAt));    // Get order items for each order
     for (const order of ordersWithDetails) {
       const items = await db.select({
+        id: orderItems.id,
         quantity: orderItems.quantity,
         pricePerItem: orderItems.pricePerItem,
         productName: products.name,
-        customCakeName: customCakes.name
+        customCakeName: customCakes.name,
+        productId: orderItems.productId,
+        customCakeId: orderItems.customCakeId
       })
       .from(orderItems)
       .leftJoin(products, eq(orderItems.productId, products.id))
@@ -361,10 +362,11 @@ export class DatabaseStorage implements IStorage {
       .where(eq(orderItems.orderId, order.id));
 
       (order as any).items = items.map(item => ({
-        productName: item.productName,
-        customCakeName: item.customCakeName,
+        id: item.id,
+        name: item.productName || item.customCakeName || 'Unknown Item',
         quantity: item.quantity,
-        pricePerItem: item.pricePerItem
+        price: item.pricePerItem,
+        isCustomCake: !!item.customCakeId
       }));
     }
 
