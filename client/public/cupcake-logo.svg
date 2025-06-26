@@ -1,0 +1,32 @@
+<!-- Cupcake Logo SVG -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Cupcake Base (Brown) -->
+  <path d="M60 120 L60 180 Q60 190 70 190 L130 190 Q140 190 140 180 L140 120 Z" 
+        fill="#8B4513" stroke="#5D2E0A" stroke-width="3"/>
+  
+  <!-- Cupcake Base Lines -->
+  <line x1="70" y1="130" x2="70" y2="180" stroke="#5D2E0A" stroke-width="2"/>
+  <line x1="80" y1="130" x2="80" y2="180" stroke="#5D2E0A" stroke-width="2"/>
+  <line x1="90" y1="130" x2="90" y2="180" stroke="#5D2E0A" stroke-width="2"/>
+  <line x1="100" y1="130" x2="100" y2="180" stroke="#5D2E0A" stroke-width="2"/>
+  <line x1="110" y1="130" x2="110" y2="180" stroke="#5D2E0A" stroke-width="2"/>
+  <line x1="120" y1="130" x2="120" y2="180" stroke="#5D2E0A" stroke-width="2"/>
+  <line x1="130" y1="130" x2="130" y2="180" stroke="#5D2E0A" stroke-width="2"/>
+  
+  <!-- Frosting Layers (Pink) -->
+  <!-- Bottom Layer -->
+  <ellipse cx="100" cy="120" rx="45" ry="15" fill="#FFB6C1" stroke="#5D2E0A" stroke-width="3"/>
+  
+  <!-- Second Layer -->
+  <ellipse cx="100" cy="105" rx="35" ry="12" fill="#FFB6C1" stroke="#5D2E0A" stroke-width="3"/>
+  
+  <!-- Third Layer -->
+  <ellipse cx="100" cy="92" rx="25" ry="10" fill="#FFB6C1" stroke="#5D2E0A" stroke-width="3"/>
+  
+  <!-- Top Layer -->
+  <ellipse cx="100" cy="82" rx="15" ry="8" fill="#FFB6C1" stroke="#5D2E0A" stroke-width="3"/>
+  
+  <!-- Heart on Top -->
+  <path d="M90 75 Q90 70 95 70 Q100 65 105 70 Q110 70 110 75 Q110 80 100 90 Q90 80 90 75 Z"
+        fill="#FF69B4" stroke="#5D2E0A" stroke-width="2"/>
+</svg>

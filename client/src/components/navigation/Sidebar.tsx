@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   LayoutDashboard,
@@ -66,31 +66,38 @@ const Sidebar = ({ type }: SidebarProps) => {
   const links = sidebarLinks[type];
   
   return (
-    <div className="bg-white rounded-xl shadow-sm p-6 sticky top-24">
+    <div className="bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-50 rounded-2xl shadow-xl border border-purple-100 p-6 sticky top-24 backdrop-blur-sm">
       {user && (
-        <div className="p-4 border-b border-accent flex flex-col items-center mb-4">
-          <Avatar className="w-12 h-12 mb-2">
-            <AvatarFallback className="bg-primary text-white">
+        <div className="p-4 border-b border-purple-200 flex flex-col items-center mb-6 bg-white/50 rounded-xl backdrop-blur-sm">
+          <Avatar className="w-16 h-16 mb-3 shadow-lg border-2 border-white">
+            {user.profileImage && (
+              <AvatarImage 
+                src={user.profileImage} 
+                alt={user.fullName}
+                className="object-cover"
+              />
+            )}
+            <AvatarFallback className="bg-gradient-to-r from-purple-500 to-blue-500 text-white text-lg font-semibold">
               {user.fullName.split(" ").map(n => n[0]).join("")}
             </AvatarFallback>
           </Avatar>
-          <h2 className="font-medium">{user.fullName}</h2>
-          <p className="text-xs text-foreground/70">{getRoleDisplayName()}</p>
+          <h2 className="font-semibold text-gray-800 text-lg">{user.fullName}</h2>
+          <p className="text-sm text-purple-600 font-medium">{getRoleDisplayName()}</p>
         </div>
       )}
-        <div className="flex flex-col space-y-1">
+        <div className="flex flex-col space-y-2">
         {links.map((link) => {
           const Icon = link.icon;
           const isActive = location === link.href;
           
           return (
             <Link key={link.href} href={link.href}>
-              <div className={`flex items-center py-2 px-4 rounded-lg cursor-pointer ${
+              <div className={`flex items-center py-3 px-4 rounded-xl cursor-pointer transition-all duration-200 ${
                 isActive 
-                  ? "bg-primary text-white" 
-                  : "text-foreground hover:bg-accent hover:bg-opacity-30 transition-all"
-              } font-poppins`}>
-                <Icon className={`h-5 w-5 mr-3 ${isActive ? "text-white" : ""}`} />
+                  ? "bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg transform scale-[1.02]" 
+                  : "text-gray-700 hover:bg-white/60 hover:shadow-md hover:scale-[1.01] bg-white/30"
+              } font-poppins font-medium`}>
+                <Icon className={`h-5 w-5 mr-3 ${isActive ? "text-white" : "text-purple-600"}`} />
                 <span className="text-sm">{link.label}</span>
               </div>
             </Link>
@@ -98,25 +105,26 @@ const Sidebar = ({ type }: SidebarProps) => {
         })}
       </div>
       
-      <div className="mt-6 pt-6 border-t border-accent">        <div className="flex flex-col space-y-1">
+      <div className="mt-6 pt-6 border-t border-purple-200">
+        <div className="flex flex-col space-y-2">
           <Link href="/profile">
-            <div className="flex items-center py-2 px-4 rounded-lg text-foreground hover:bg-accent hover:bg-opacity-30 transition-all font-poppins cursor-pointer">
-              <UserCircle className="h-5 w-5 mr-3" />
+            <div className="flex items-center py-3 px-4 rounded-xl text-gray-700 hover:bg-white/60 hover:shadow-md hover:scale-[1.01] transition-all duration-200 font-poppins font-medium cursor-pointer bg-white/30">
+              <UserCircle className="h-5 w-5 mr-3 text-purple-600" />
               <span className="text-sm">Profile</span>
             </div>
           </Link>
           <Link href="/settings">
-            <div className="flex items-center py-2 px-4 rounded-lg text-foreground hover:bg-accent hover:bg-opacity-30 transition-all font-poppins cursor-pointer">
-              <Settings className="h-5 w-5 mr-3" />
+            <div className="flex items-center py-3 px-4 rounded-xl text-gray-700 hover:bg-white/60 hover:shadow-md hover:scale-[1.01] transition-all duration-200 font-poppins font-medium cursor-pointer bg-white/30">
+              <Settings className="h-5 w-5 mr-3 text-purple-600" />
               <span className="text-sm">Settings</span>
             </div>
           </Link>
           <Button 
             onClick={logout}
             variant="ghost" 
-            className="flex items-center justify-start py-2 px-4 rounded-lg text-destructive hover:bg-destructive hover:bg-opacity-10 transition-all font-poppins"
+            className="flex items-center justify-start py-3 px-4 rounded-xl text-red-600 hover:bg-red-50 hover:shadow-md hover:scale-[1.01] transition-all duration-200 font-poppins font-medium bg-white/30"
           >
-            <LogOut className="h-5 w-5 mr-3" />
+            <LogOut className="h-5 w-5 mr-3 text-red-500" />
             <span className="text-sm">Logout</span>
           </Button>
         </div>
