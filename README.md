@@ -17,7 +17,7 @@ Bakery Bliss is a sophisticated bakery management platform that connects custome
 - **Wouter** for client-side routing
 - **React Query** (@tanstack/react-query) for state management
 - **Lucide React** for modern icons
-- **Radix UI** components for accessible UI elements
+- **Radix UI** components for accessible UI elements.
 
 **Backend:**
 - **Node.js** with **Express.js**
