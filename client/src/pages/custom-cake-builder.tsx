@@ -94,16 +94,32 @@ const CustomCakeBuilder = () => {
     }
   }, [selection.layers, selection.color, selection.sideDesign, selection.upperDesign]);
 
-  // Load design options from API
+  // Load design options from text files
   const loadDesignOptions = async () => {
     try {
-      const response = await fetch('/api/cake-builder/options');
-      if (response.ok) {
-        const options = await response.json();
-        setDesignOptions(options);
-      } else {
-        toast.error('Failed to load design options');
-      }
+      // Read all design option files
+      const [colors, layers, shapes, sideDesigns, upperDesigns] = await Promise.all([
+        fetch('/design/color.txt').then(res => res.text()),
+        fetch('/design/layer.txt').then(res => res.text()),
+        fetch('/design/shape.txt').then(res => res.text()),
+        fetch('/design/side_design.txt').then(res => res.text()),
+        fetch('/design/upper_design.txt').then(res => res.text())
+      ]);
+
+      // Parse into arrays
+      const options = {
+        colors: colors.split('\n').filter(Boolean),
+        layers: layers.split('\n').filter(Boolean),
+        shapes: shapes.split('\n').filter(Boolean),
+        sideDesigns: sideDesigns.split('\n').filter(Boolean),
+        upperDesigns: upperDesigns.split('\n').filter(Boolean)
+      };
+
+      setDesignOptions({
+        ...options,
+        // Initialize with all layers first
+        layers: options.layers
+      });
     } catch (error) {
       console.error('Error loading design options:', error);
       toast.error('Failed to load design options');
@@ -137,19 +153,23 @@ const CustomCakeBuilder = () => {
     const designKey = generateDesignKey();
     
     try {
-      const response = await fetch(`/api/cake-builder/preview?key=${designKey}`);
+      // Construct the image path from the combinations folder
+      const imagePath = `/design/combinations/${selection.layers}/${selection.color}/${selection.sideDesign}/${selection.upperDesign}.png`;
+      
+      // Check if the image exists by making a HEAD request
+      const response = await fetch(imagePath, { method: 'HEAD' });
+      
       if (response.ok) {
-        const result = await response.json();
-        setDesignAvailable(result.available);
-        setPreviewImage(result.available ? result.imageUrl : result.fallbackUrl);
+        setDesignAvailable(true);
+        setPreviewImage(imagePath);
       } else {
         setDesignAvailable(false);
-        setPreviewImage(null);
+        setPreviewImage('/design/fallback.jpeg');
       }
     } catch (error) {
       console.error('Error loading preview:', error);
       setDesignAvailable(false);
-      setPreviewImage(null);
+      setPreviewImage('/design/fallback.jpeg');
     } finally {
       setIsLoadingPreview(false);
     }
@@ -178,20 +198,38 @@ const CustomCakeBuilder = () => {
     return Math.round(price * 100) / 100; // Round to 2 decimal places
   };
 
-  // Handle option selection
+  // Handle option selection with filtered options
   const handleOptionSelect = (step: number, value: string) => {
     switch (step) {
-      case 1:
-        setSelection(prev => ({ ...prev, layers: value }));
+      case 1: // Layer selection
+        setSelection(prev => ({
+          ...prev, 
+          layers: value,
+          color: '',
+          sideDesign: '',
+          upperDesign: ''
+        }));
         break;
-      case 2:
-        setSelection(prev => ({ ...prev, color: value }));
+      case 2: // Color selection
+        setSelection(prev => ({
+          ...prev, 
+          color: value,
+          sideDesign: '',
+          upperDesign: ''
+        }));
         break;
-      case 3:
-        setSelection(prev => ({ ...prev, sideDesign: value }));
+      case 3: // Side design selection
+        setSelection(prev => ({
+          ...prev, 
+          sideDesign: value,
+          upperDesign: ''
+        }));
         break;
-      case 4:
-        setSelection(prev => ({ ...prev, upperDesign: value }));
+      case 4: // Upper design selection
+        setSelection(prev => ({
+          ...prev, 
+          upperDesign: value
+        }));
         break;
     }
   };
@@ -209,22 +247,69 @@ const CustomCakeBuilder = () => {
     setCurrentStep(7); // Move to final step
   };
 
-  // Get current step data
+  // Get current step data with filtered options
   const getCurrentStepData = () => {
+    // Filter options based on previous selections
+    const filteredColors = selection.layers 
+      ? designOptions.colors.filter(color => {
+          // Check if there's at least one valid combination with this color and selected layer
+          return designOptions.shapes.some(shape => 
+            designOptions.sideDesigns.some(side => 
+              designOptions.upperDesigns.some(upper => {
+                const imagePath = `/design/combinations/${selection.layers}/${color}/${side}/${upper}.png`;
+                return imagePath;
+              })
+            )
+          );
+        })
+      : designOptions.colors;
+
+    const filteredShapes = selection.layers && selection.color
+      ? designOptions.shapes.filter(shape => {
+          // Check if there's at least one valid combination with this shape, selected layer and color
+          return designOptions.sideDesigns.some(side => 
+            designOptions.upperDesigns.some(upper => {
+              const imagePath = `/design/combinations/${selection.layers}/${selection.color}/${side}/${upper}.png`;
+              return imagePath;
+            })
+          );
+        })
+      : designOptions.shapes;
+
+    const filteredSideDesigns = selection.layers && selection.color
+      ? designOptions.sideDesigns.filter(side => {
+          // Check if there's at least one valid combination with this side design, selected layer and color
+          return designOptions.upperDesigns.some(upper => {
+            const imagePath = `/design/combinations/${selection.layers}/${selection.color}/${side}/${upper}.png`;
+            return imagePath;
+          });
+        })
+      : designOptions.sideDesigns;
+
+    const filteredUpperDesigns = selection.layers && selection.color && selection.sideDesign
+      ? designOptions.upperDesigns.filter(upper => {
+          // Check if there's a valid combination with this upper design and previous selections
+          const imagePath = `/design/combinations/${selection.layers}/${selection.color}/${selection.sideDesign}/${upper}.png`;
+          return imagePath;
+        })
+      : designOptions.upperDesigns;
+
     switch (currentStep) {
       case 1:
         return { title: 'Choose Layers', options: designOptions.layers, icon: <Cake className="h-5 w-5" /> };
       case 2:
-        return { title: 'Select Color', options: designOptions.colors, icon: <Palette className="h-5 w-5" /> };
+        return { title: 'Select Color', options: filteredColors, icon: <Palette className="h-5 w-5" /> };
       case 3:
-        return { title: 'Side Design', options: designOptions.sideDesigns, icon: <Image className="h-5 w-5" /> };
+        return { title: 'Choose Shape', options: filteredShapes, icon: <Image className="h-5 w-5" /> };
       case 4:
-        return { title: 'Upper Design', options: designOptions.upperDesigns, icon: <Image className="h-5 w-5" /> };
+        return { title: 'Side Design', options: filteredSideDesigns, icon: <Image className="h-5 w-5" /> };
       case 5:
-        return { title: 'Cake Weight', options: [], icon: <Scale className="h-5 w-5" /> };
+        return { title: 'Upper Design', options: filteredUpperDesigns, icon: <Image className="h-5 w-5" /> };
       case 6:
-        return { title: 'Choose Main Baker', options: [], icon: <User className="h-5 w-5" /> };
+        return { title: 'Cake Weight', options: [], icon: <Scale className="h-5 w-5" /> };
       case 7:
+        return { title: 'Choose Main Baker', options: [], icon: <User className="h-5 w-5" /> };
+      case 8:
         return { title: 'Review & Order', options: [], icon: <ShoppingCart className="h-5 w-5" /> };
       default:
         return { title: 'Step', options: [], icon: null };
