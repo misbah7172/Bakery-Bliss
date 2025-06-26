@@ -1,0 +1,8 @@
+round shape
+heart shape
+square shape
+oval shape
+hexagon shape
+circle shape
+triangle shape
+star shape
