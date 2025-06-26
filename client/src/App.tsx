@@ -23,6 +23,7 @@ const OrderDetail = lazy(() => import("@/pages/order-detail"));
 const Bakers = lazy(() => import("@/pages/bakers"));
 const ApplyJuniorBaker = lazy(() => import("@/pages/apply-junior-baker"));
 const Checkout = lazy(() => import("@/pages/checkout"));
+const Reviews = lazy(() => import("@/pages/reviews"));
 
 // Customer Dashboard Pages
 const CustomerOrders = lazy(() => import("@/pages/dashboard/customer/orders"));
@@ -78,6 +79,7 @@ function App() {
         <Route path="/apply-junior-baker/:bakerId" component={ApplyJuniorBaker} />
         <Route path="/checkout" component={Checkout} />
         <Route path="/track-order" component={OrderTracking} />
+        <Route path="/reviews" component={Reviews} />
         
         {/* Dashboard routes */}
         <Route path="/dashboard/customer" component={DashboardCustomer} />

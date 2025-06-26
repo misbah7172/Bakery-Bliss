@@ -32,24 +32,43 @@ const ApplyForPromotionPage = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Required number of completed orders to apply
-  const REQUIRED_ORDERS = 50;
+  const REQUIRED_ORDERS = 5;
   
   // Check eligibility and load stats
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        // In a real implementation, we would fetch from the backend
-        // For now, we'll use mock data
-        setTimeout(() => {
-          setStats({
-            totalOrdersCompleted: 47, // Just below threshold for testing
-            averageRating: 4.8,
-            qualityCheckPassed: 45,
-            pendingApplications: 0,
-            applicationStatus: undefined // Can be "pending", "approved", "rejected"
-          });
-          setLoading(false);
-        }, 800);
+        // Fetch real stats from the backend
+        const [dashboardResponse, completedOrdersResponse] = await Promise.all([
+          fetch("/api/dashboard/junior-baker", {
+            credentials: "include"
+          }),
+          fetch("/api/junior-baker/completed-orders", {
+            credentials: "include"
+          })
+        ]);
+
+        if (!dashboardResponse.ok || !completedOrdersResponse.ok) {
+          throw new Error("Failed to fetch baker stats");
+        }
+
+        const dashboardData = await dashboardResponse.json();
+        const completedOrders = await completedOrdersResponse.json();
+
+        // Calculate average rating from completed orders
+        const ordersWithRatings = completedOrders.filter((order: any) => order.review?.rating);
+        const averageRating = ordersWithRatings.length > 0
+          ? ordersWithRatings.reduce((sum: number, order: any) => sum + order.review.rating, 0) / ordersWithRatings.length
+          : 0;
+
+        setStats({
+          totalOrdersCompleted: completedOrders.length,
+          averageRating: averageRating,
+          qualityCheckPassed: completedOrders.filter((order: any) => order.status === 'delivered').length,
+          pendingApplications: 0, // TODO: Fetch pending applications
+          applicationStatus: undefined // TODO: Check for existing applications
+        });
+        setLoading(false);
       } catch (error) {
         console.error("Error fetching baker stats:", error);
         toast({
@@ -126,10 +145,7 @@ const ApplyForPromotionPage = () => {
       };
 
       // Send data to the API
-      await apiRequest('/api/baker-applications', {
-        method: 'POST',
-        body: JSON.stringify(applicationData),
-      });
+      await apiRequest('/api/baker-applications', 'POST', applicationData);
 
       toast({
         title: "Application Submitted",
@@ -153,7 +169,7 @@ const ApplyForPromotionPage = () => {
 
   if (loading) {
     return (
-      <AppLayout showSidebar sidebarType="junior_baker">
+      <AppLayout showSidebar sidebarType="junior">
         <div className="flex items-center justify-center h-64">
           <Loader2 className="h-8 w-8 text-primary animate-spin" />
         </div>
@@ -165,7 +181,7 @@ const ApplyForPromotionPage = () => {
   const hasPendingApplication = stats && stats.pendingApplications > 0;
 
   return (
-    <AppLayout showSidebar sidebarType="junior_baker">
+    <AppLayout showSidebar sidebarType="junior">
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-semibold">Apply for Main Baker Position</h1>
@@ -191,7 +207,7 @@ const ApplyForPromotionPage = () => {
                 <h3 className="text-2xl font-bold">{stats?.totalOrdersCompleted || 0}</h3>
                 <p className="text-sm text-muted-foreground">Orders Completed</p>
                 <div className="mt-2">
-                  <Badge variant={isEligible ? "success" : "outline"}>
+                  <Badge variant={isEligible ? "default" : "outline"} className={isEligible ? "bg-green-100 text-green-800" : ""}>
                     {isEligible ? 
                       <Check className="h-3 w-3 mr-1" /> : 
                       <Clock className="h-3 w-3 mr-1" />}
@@ -207,7 +223,8 @@ const ApplyForPromotionPage = () => {
                 <h3 className="text-2xl font-bold">{stats?.averageRating.toFixed(1) || "0.0"}</h3>
                 <p className="text-sm text-muted-foreground">Average Rating</p>
                 <div className="mt-2">
-                  <Badge variant={(stats?.averageRating || 0) >= 4.5 ? "success" : "outline"}>
+                  <Badge variant={(stats?.averageRating || 0) >= 4.5 ? "default" : "outline"} 
+                         className={(stats?.averageRating || 0) >= 4.5 ? "bg-green-100 text-green-800" : ""}>
                     {(stats?.averageRating || 0) >= 4.5 ? 
                       <Check className="h-3 w-3 mr-1" /> : 
                       <Clock className="h-3 w-3 mr-1" />}
@@ -223,7 +240,8 @@ const ApplyForPromotionPage = () => {
                 <h3 className="text-2xl font-bold">{stats?.qualityCheckPassed || 0}</h3>
                 <p className="text-sm text-muted-foreground">Quality Checks Passed</p>
                 <div className="mt-2">
-                  <Badge variant={(stats?.qualityCheckPassed || 0) >= 40 ? "success" : "outline"}>
+                  <Badge variant={(stats?.qualityCheckPassed || 0) >= 40 ? "default" : "outline"}
+                         className={(stats?.qualityCheckPassed || 0) >= 40 ? "bg-green-100 text-green-800" : ""}>
                     {(stats?.qualityCheckPassed || 0) >= 40 ? 
                       <Check className="h-3 w-3 mr-1" /> : 
                       <Clock className="h-3 w-3 mr-1" />}

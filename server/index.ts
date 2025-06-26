@@ -12,8 +12,8 @@ declare module 'express-session' {
 }
 
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+app.use(express.json({ limit: '10mb' })); // Increased limit for profile images
+app.use(express.urlencoded({ extended: false, limit: '10mb' }));
 
 // Serve static design files
 app.use('/design', express.static('client/design'));

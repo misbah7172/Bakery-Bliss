@@ -5,19 +5,22 @@ import bcrypt from "bcryptjs";
 import session from "express-session";
 import { z } from "zod";
 import { db } from "./db";
-import { orders, orderItems, products, customCakes, users } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { orders, orderItems, products, customCakes, users, likedProducts, directChats } from "@shared/schema";
+import { eq, and } from "drizzle-orm";
 import {
   insertUserSchema,
   insertProductSchema,
   insertCustomCakeSchema,
   insertOrderSchema,
   insertChatSchema,
+  insertDirectChatSchema,
   insertBakerApplicationSchema,
   orderStatusEnum,
   roleEnum,
   insertShippingInfoSchema,
-  type InsertChat
+  insertLikedProductSchema,
+  type InsertChat,
+  type InsertDirectChat
 } from "@shared/schema";
 
 // Extend Express Request interface
@@ -165,7 +168,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...userData,
         password: hashedPassword
       });
-        // Create session
+      
+      // Create session
       req.session.userId = user.id;
       
       res.status(201).json({
@@ -174,7 +178,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           email: user.email,
           username: user.username,
           fullName: user.fullName,
-          role: user.role
+          role: user.role,
+          profileImage: user.profileImage,
+          customerSince: user.customerSince
         }
       });
     } catch (error) {
@@ -237,7 +243,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           email: user.email,
           username: user.username,
           fullName: user.fullName,
-          role: user.role
+          role: user.role,
+          profileImage: user.profileImage,
+          customerSince: user.customerSince
         }
       });
     } catch (error) {
@@ -328,72 +336,181 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const path = await import('path');
       
       const designPath = path.join(process.cwd(), 'client', 'design');
+      console.log('Design path:', designPath);
       
-      // Read available options from design folders
-      const [layers, colors, sideDesigns, upperDesigns] = await Promise.all([
-        fs.readdir(path.join(designPath, 'layer')).then((files: string[]) => 
-          files.filter((f: string) => f.endsWith('.jpeg')).map((f: string) => f.replace('.jpeg', ''))
-        ).catch(() => []),
-        fs.readdir(path.join(designPath, 'color')).then((files: string[]) => 
-          files.filter((f: string) => f.endsWith('.jpeg')).map((f: string) => f.replace('.jpeg', ''))
-        ).catch(() => []),
-        fs.readdir(path.join(designPath, 'side_design')).then((files: string[]) => 
-          files.filter((f: string) => f.endsWith('.jpeg')).map((f: string) => f.replace('.jpeg', ''))
-        ).catch(() => []),
-        fs.readdir(path.join(designPath, 'upper_design')).then((files: string[]) => 
-          files.filter((f: string) => f.endsWith('.jpeg')).map((f: string) => f.replace('.jpeg', ''))
-        ).catch(() => [])
+      // Read available options from text files
+      const [layersText, colorsText, shapesText, sideDesignsText, upperDesignsText] = await Promise.all([
+        fs.readFile(path.join(designPath, 'layer.txt'), 'utf-8').then(content => {
+          console.log('Layer.txt content:', content);
+          return content.trim().split(/\r?\n/).filter(line => line.trim());
+        }).catch(err => {
+          console.error('Error reading layer.txt:', err);
+          return [];
+        }),
+        fs.readFile(path.join(designPath, 'color.txt'), 'utf-8').then(content => 
+          content.trim().split(/\r?\n/).filter(line => line.trim())
+        ).catch(err => {
+          console.error('Error reading color.txt:', err);
+          return [];
+        }),
+        fs.readFile(path.join(designPath, 'shape.txt'), 'utf-8').then(content => 
+          content.trim().split(/\r?\n/).filter(line => line.trim())
+        ).catch(err => {
+          console.error('Error reading shape.txt:', err);
+          return [];
+        }),
+        fs.readFile(path.join(designPath, 'side_design.txt'), 'utf-8').then(content => 
+          content.trim().split(/\r?\n/).filter(line => line.trim())
+        ).catch(err => {
+          console.error('Error reading side_design.txt:', err);
+          return [];
+        }),
+        fs.readFile(path.join(designPath, 'upper_design.txt'), 'utf-8').then(content => 
+          content.trim().split(/\r?\n/).filter(line => line.trim())
+        ).catch(err => {
+          console.error('Error reading upper_design.txt:', err);
+          return [];
+        })
       ]);
       
+      console.log('Parsed options:', { layersText, colorsText, shapesText, sideDesignsText, upperDesignsText });
+      
+      // Read available combinations to understand which combinations exist
+      const combinationsPath = path.join(designPath, 'combinations');
+      const combinationFiles = await fs.readdir(combinationsPath)
+        .then((files: string[]) => files.filter((f: string) => f.endsWith('.png')))
+        .catch(() => []);
+      
+      // Parse combination files to extract available combinations
+      const availableCombinations = combinationFiles.map(filename => {
+        const name = filename.replace('.png', '');
+        const parts = name.split(', ');
+        if (parts.length >= 5) {
+          return {
+            layer: parts[0],
+            shape: parts[1], 
+            color: parts[2],
+            sideDesign: parts[3],
+            upperDesign: parts[4]
+          };
+        }
+        return null;
+      }).filter((combo): combo is NonNullable<typeof combo> => combo !== null);
+      
       res.json({
-        layers,
-        colors,
-        sideDesigns,
-        upperDesigns
+        layers: layersText,
+        colors: colorsText,
+        shapes: shapesText,
+        sideDesigns: sideDesignsText,
+        upperDesigns: upperDesignsText,
+        availableCombinations
       });
     } catch (error) {
       console.error('Error loading design options:', error);
       res.status(500).json({ message: "Internal server error" });
     }
-  });  // Check if design combination exists and return preview image
-  app.get("/api/cake-builder/preview", async (req, res) => {
+  });
+
+  // Get filtered options based on previous selections
+  app.get("/api/cake-builder/filtered-options", async (req, res) => {
     try {
-      const { key } = req.query;
+      const { layer, color, shape, sideDesign } = req.query;
+      const fs = await import('fs/promises');
+      const path = await import('path');
       
-      if (!key || typeof key !== 'string') {
-        return res.status(400).json({ message: "Design key is required" });
+      const designPath = path.join(process.cwd(), 'client', 'design');
+      
+      // Read available combinations
+      const combinationsPath = path.join(designPath, 'combinations');
+      const combinationFiles = await fs.readdir(combinationsPath)
+        .then((files: string[]) => files.filter((f: string) => f.endsWith('.png')))
+        .catch(() => []);
+      
+      // Parse combination files
+      const availableCombinations = combinationFiles.map(filename => {
+        const name = filename.replace('.png', '');
+        const parts = name.split(', ');
+        if (parts.length >= 5) {
+          return {
+            layer: parts[0],
+            shape: parts[1], 
+            color: parts[2],
+            sideDesign: parts[3],
+            upperDesign: parts[4]
+          };
+        }
+        return null;
+      }).filter((combo): combo is NonNullable<typeof combo> => combo !== null);
+      
+      // Filter combinations based on current selections
+      let filteredCombinations = availableCombinations;
+      
+      if (layer) {
+        filteredCombinations = filteredCombinations.filter(combo => combo.layer === layer);
+      }
+      if (color) {
+        filteredCombinations = filteredCombinations.filter(combo => combo.color === color);
+      }
+      if (shape) {
+        filteredCombinations = filteredCombinations.filter(combo => combo.shape === shape);
+      }
+      if (sideDesign) {
+        filteredCombinations = filteredCombinations.filter(combo => combo.sideDesign === sideDesign);
+      }
+      
+      // Extract available options for next step
+      const availableColors = Array.from(new Set(filteredCombinations.map(combo => combo.color)));
+      const availableShapes = Array.from(new Set(filteredCombinations.map(combo => combo.shape)));
+      const availableSideDesigns = Array.from(new Set(filteredCombinations.map(combo => combo.sideDesign)));
+      const availableUpperDesigns = Array.from(new Set(filteredCombinations.map(combo => combo.upperDesign)));
+      
+      res.json({
+        colors: availableColors,
+        shapes: availableShapes,
+        sideDesigns: availableSideDesigns,
+        upperDesigns: availableUpperDesigns
+      });
+    } catch (error) {
+      console.error('Error loading filtered options:', error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });  // Check if design combination exists and return preview image
+  app.post("/api/cake-builder/preview", async (req, res) => {
+    try {
+      const { layer, shape, color, sideDesign, upperDesign } = req.body;
+      
+      if (!layer || !shape || !color || !sideDesign || !upperDesign) {
+        return res.status(400).json({ message: "All design parameters are required" });
       }
       
       const fs = await import('fs/promises');
       const path = await import('path');
       
-      // The design key format is: color_layers_sideDesign_upperDesign
-      // Example: pink_3layer_butterfly_rose
+      // Create the design key from the components
+      const designKey = `${layer}, ${shape}, ${color}, ${sideDesign}, ${upperDesign}`;
+      
       const designPath = path.join(process.cwd(), 'client', 'design');
-      const imagePath = path.join(designPath, 'combinations', `${key}.jpeg`);
+      const imagePath = path.join(designPath, 'combinations', `${designKey}.png`);
       const fallbackPath = path.join(designPath, 'fallback.jpeg');
+      
+      console.log('Looking for image at:', imagePath);
+      console.log('Design key created:', designKey);
       
       try {
         // Check if the specific combination image exists
         await fs.access(imagePath);
+        console.log('Image found!');
         res.json({
           available: true,
-          imageUrl: `/design/combinations/${key}.jpeg`
+          imageUrl: `/design/combinations/${encodeURIComponent(designKey)}.png`
         });
-      } catch {
-        // Check if fallback image exists
-        try {
-          await fs.access(fallbackPath);
-          res.json({
-            available: false,
-            fallbackUrl: `/design/fallback.jpeg`
-          });
-        } catch {
-          res.json({
-            available: false,
-            fallbackUrl: null
-          });
-        }
+      } catch (error) {
+        console.log('Image not found:', (error as Error).message);
+        // If specific combination doesn't exist, return fallback info
+        res.json({
+          available: false,
+          fallbackUrl: '/design/fallback.jpeg'
+        });
       }
     } catch (error) {
       console.error('Error checking design preview:', error);
@@ -406,7 +523,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const cakeData = req.body;
       
       // Validate required fields
-      if (!cakeData.layers || !cakeData.color || !cakeData.sideDesign || !cakeData.upperDesign || !cakeData.pounds || !cakeData.mainBakerId) {
+      if (!cakeData.layers || !cakeData.shape || !cakeData.color || !cakeData.sideDesign || !cakeData.upperDesign || !cakeData.pounds || !cakeData.mainBakerId) {
         return res.status(400).json({ message: "Missing required fields" });
       }
       
@@ -415,6 +532,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId: req.user!.id,
         name: cakeData.name,
         layers: cakeData.layers,
+        shape: cakeData.shape,
         color: cakeData.color,
         sideDesign: cakeData.sideDesign,
         upperDesign: cakeData.upperDesign,
@@ -439,19 +557,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let orders;
       
       // Different query based on role
-      if (req.user.role === 'customer') {
-        orders = await storage.getUserOrdersWithDetails(req.user.id);
-      } else if (req.user.role === 'junior_baker') {
-        orders = await storage.getJuniorBakerOrders(req.user.id);
-      } else if (req.user.role === 'main_baker') {
-        orders = await storage.getMainBakerOrders(req.user.id);
-      } else if (req.user.role === 'admin') {
+      if (req.user!.role === 'customer') {
+        orders = await storage.getUserOrdersWithDetails(req.user!.id);
+      } else if (req.user!.role === 'junior_baker') {
+        orders = await storage.getJuniorBakerOrders(req.user!.id);
+      } else if (req.user!.role === 'main_baker') {
+        orders = await storage.getMainBakerOrders(req.user!.id);
+      } else if (req.user!.role === 'admin') {
         orders = await storage.getAllOrders();
       }
       
       res.json(orders);
     } catch (error) {
       console.error('Error fetching orders:', error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get main baker orders with custom cake details
+  app.get("/api/orders/main-baker-details", authenticate, authorize(['main_baker']), async (req, res) => {
+    try {
+      console.log(`🎂 Fetching detailed orders for main baker: ${req.user!.id}`);
+      const orders = await storage.getMainBakerOrdersWithDetails(req.user!.id);
+      console.log(`🎂 Found ${orders.length} detailed orders`);
+      
+      // Log a sample of the data structure to debug
+      if (orders.length > 0) {
+        console.log(`🎂 Sample order structure:`, JSON.stringify(orders[0], null, 2));
+      }
+      
+      res.json(orders);
+    } catch (error) {
+      console.error('Error fetching main baker orders with details:', error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get junior baker orders with detailed custom cake information
+  app.get("/api/orders/junior-baker-details", authenticate, authorize(['junior_baker']), async (req, res) => {
+    try {
+      console.log(`🎂 Fetching detailed orders for junior baker: ${req.user!.id}`);
+      const orders = await storage.getJuniorBakerOrdersWithDetails(req.user!.id);
+      console.log(`🎂 Found ${orders.length} detailed orders for junior baker`);
+      
+      // Log a sample of the data structure to debug
+      if (orders.length > 0) {
+        console.log(`🎂 Sample junior baker order structure:`, JSON.stringify(orders[0], null, 2));
+      }
+      
+      res.json(orders);
+    } catch (error) {
+      console.error('Error fetching junior baker orders with details:', error);
       res.status(500).json({ message: "Internal server error" });
     }
   });
@@ -773,6 +929,162 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== DIRECT CHAT ROUTES =====
+  
+  // Get direct messages between junior baker and main baker
+  app.get("/api/direct-chat/:receiverId", authenticate, async (req, res) => {
+    try {
+      const receiverId = parseInt(req.params.receiverId);
+      const senderId = req.user!.id;
+      
+      console.log(`🔍 Fetching direct messages between user ${senderId} and ${receiverId}`);
+      
+      // Validate user roles - only allow junior_baker <-> main_baker communication
+      const [sender, receiver] = await Promise.all([
+        db.select().from(users).where(eq(users.id, senderId)).limit(1),
+        db.select().from(users).where(eq(users.id, receiverId)).limit(1)
+      ]);
+      
+      if (!sender[0] || !receiver[0]) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      const validCommunication = (
+        (sender[0].role === 'junior_baker' && receiver[0].role === 'main_baker') ||
+        (sender[0].role === 'main_baker' && receiver[0].role === 'junior_baker')
+      );
+      
+      if (!validCommunication) {
+        return res.status(403).json({ message: "Direct chat only allowed between junior bakers and main bakers" });
+      }
+      
+      // Get messages between these two users
+      const messages = await db
+        .select({
+          id: directChats.id,
+          senderId: directChats.senderId,
+          receiverId: directChats.receiverId,
+          message: directChats.message,
+          createdAt: directChats.timestamp,
+          senderName: users.fullName,
+          senderRole: users.role,
+          senderProfileImage: users.profileImage,
+        })
+        .from(directChats)
+        .innerJoin(users, eq(directChats.senderId, users.id))
+        .where(
+          and(
+            eq(directChats.senderId, senderId),
+            eq(directChats.receiverId, receiverId)
+          )
+        )
+        .orderBy(directChats.timestamp);
+      
+      // Also get messages from receiver to sender
+      const reverseMessages = await db
+        .select({
+          id: directChats.id,
+          senderId: directChats.senderId,
+          receiverId: directChats.receiverId,
+          message: directChats.message,
+          createdAt: directChats.timestamp,
+          senderName: users.fullName,
+          senderRole: users.role,
+          senderProfileImage: users.profileImage,
+        })
+        .from(directChats)
+        .innerJoin(users, eq(directChats.senderId, users.id))
+        .where(
+          and(
+            eq(directChats.senderId, receiverId),
+            eq(directChats.receiverId, senderId)
+          )
+        )
+        .orderBy(directChats.timestamp);
+      
+      // Combine and sort all messages
+      const allMessages = [...messages, ...reverseMessages].sort(
+        (a, b) => {
+          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return dateA - dateB;
+        }
+      );
+      
+      console.log(`💬 Found ${allMessages.length} direct messages`);
+      res.json(allMessages);
+    } catch (error) {
+      console.error("Error fetching direct messages:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Send a direct message
+  app.post("/api/direct-chat", authenticate, async (req, res) => {
+    try {
+      const { receiverId, message } = req.body;
+      const senderId = req.user!.id;
+      
+      if (!receiverId || !message || !message.trim()) {
+        return res.status(400).json({ message: "Receiver ID and message are required" });
+      }
+      
+      console.log(`📤 Sending direct message from ${senderId} to ${receiverId}`);
+      
+      // Validate user roles
+      const [sender, receiver] = await Promise.all([
+        db.select().from(users).where(eq(users.id, senderId)).limit(1),
+        db.select().from(users).where(eq(users.id, receiverId)).limit(1)
+      ]);
+      
+      if (!sender[0] || !receiver[0]) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      const validCommunication = (
+        (sender[0].role === 'junior_baker' && receiver[0].role === 'main_baker') ||
+        (sender[0].role === 'main_baker' && receiver[0].role === 'junior_baker')
+      );
+      
+      if (!validCommunication) {
+        return res.status(403).json({ message: "Direct chat only allowed between junior bakers and main bakers" });
+      }
+      
+      // Create the direct chat message
+      const chatData: InsertDirectChat = {
+        senderId,
+        receiverId: parseInt(receiverId),
+        message: message.trim(),
+        isRead: false
+      };
+      
+      const [newMessage] = await db.insert(directChats).values(chatData).returning();
+      
+      // Get the message with sender info
+      const messageWithSender = await db
+        .select({
+          id: directChats.id,
+          senderId: directChats.senderId,
+          receiverId: directChats.receiverId,
+          message: directChats.message,
+          createdAt: directChats.timestamp,
+          senderName: users.fullName,
+          senderRole: users.role,
+          senderProfileImage: users.profileImage,
+        })
+        .from(directChats)
+        .innerJoin(users, eq(directChats.senderId, users.id))
+        .where(eq(directChats.id, newMessage.id))
+        .limit(1);
+      
+      console.log(`✅ Direct message sent successfully`);
+      res.status(201).json(messageWithSender[0]);
+    } catch (error) {
+      console.error("Error sending direct message:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // ===== BAKER APPLICATION ROUTES =====
   
   // Apply to become baker
@@ -826,6 +1138,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (user) {
           const newRole = application.requestedRole;
           await storage.updateUserRole(user.id, newRole);
+          
+          // If promoting junior baker to main baker, remove them from their current team
+          if (application.currentRole === 'junior_baker' && newRole === 'main_baker') {
+            await storage.removeJuniorBakerFromTeam(user.id);
+          }
         }
       }
       
@@ -888,7 +1205,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get applications for main baker
   app.get("/api/baker-applications/main-baker", authenticate, authorize(['main_baker']), async (req, res) => {
     try {
-      const applications = await storage.getBakerApplicationsByMainBaker(req.user.id);
+      const applications = await storage.getApplicationsForMainBaker(req.user.id);
       res.json(applications);
     } catch (error) {
       console.error("Error fetching baker applications:", error);
@@ -1031,6 +1348,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/baker-applications", authenticate, authorize(["admin"]), async (req, res) => {
     try {
       const applications = await storage.getAllBakerApplications();
+      console.log("Admin fetching applications:", applications.length, "found");
+      console.log("Applications status breakdown:", applications.map(app => ({ id: app.id, status: app.status, currentRole: app.currentRole, requestedRole: app.requestedRole })));
       res.json(applications);
     } catch (error) {
       console.error("Error fetching baker applications:", error);
@@ -1104,6 +1423,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/admin/baker-applications/:applicationId/approve", authenticate, authorize(["admin"]), async (req, res) => {
     try {
       const { applicationId } = req.params;
+      console.log("Admin approving application:", applicationId);
       
       // Get the application details first
       const application = await storage.getBakerApplicationById(parseInt(applicationId));
@@ -1111,20 +1431,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Application not found" });
       }
       
+      console.log("Application before approval:", { id: application.id, status: application.status, userId: application.userId, requestedRole: application.requestedRole });
+      
       // Update application status
-      await storage.updateBakerApplicationStatus(
+      const updatedApp = await storage.updateBakerApplicationStatus(
         parseInt(applicationId), 
         "approved", 
         req.user.id
       );
       
-      // Update user role to junior_baker and assign main baker
-      if (application.userId) {
-        await storage.updateUserRole(application.userId, "junior_baker");
+      console.log("Application after status update:", updatedApp);
+      
+      // Update user role based on the requested role (should be main_baker for admin-handled applications)
+      if (application.userId && application.requestedRole) {
+        await storage.updateUserRole(application.userId, application.requestedRole as any);
+        console.log("User role updated to:", application.requestedRole);
         
-        // Assign the main baker to the new junior baker
-        if (application.mainBakerId) {
-          await storage.assignJuniorBakerToMainBaker(application.userId, application.mainBakerId);
+        // If promoting to main_baker, remove them from any junior baker teams
+        if (application.requestedRole === 'main_baker') {
+          // Remove from baker teams since they're now a main baker
+          await storage.removeJuniorBakerFromTeam(application.userId);
+          console.log("Removed user from junior baker team");
         }
       }
 
@@ -1406,6 +1733,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Internal server error" });
     }
   });
+  
   // Junior Baker Assigned Orders for Chat
   app.get("/api/junior-baker/assigned-orders", authenticate, authorize(['junior_baker']), async (req, res) => {
     try {
@@ -1418,7 +1746,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching assigned orders for chat:", error);
       res.status(500).json({ message: "Internal server error" });
-    }  });
+    }
+  });
 
   // Get main bakers that a junior baker can chat with
   app.get("/api/junior-baker/main-bakers", authenticate, authorize(['junior_baker']), async (req, res) => {
@@ -1496,6 +1825,89 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/reviews", async (req, res) => {
     try {
       const reviews = await storage.getAllReviews();
+      
+      // If no reviews in database, return mock data for demonstration
+      if (reviews.length === 0) {
+        const mockReviews = [
+          {
+            id: 1,
+            orderId: 1,
+            rating: 5,
+            comment: "Absolutely amazing! The custom birthday cake was exactly what I dreamed of. The layers were moist, the frosting was perfectly sweet, and the decorations were stunning. My daughter's face lit up when she saw it!",
+            isVerifiedPurchase: true,
+            createdAt: new Date().toISOString(),
+            user: {
+              fullName: "Sarah Johnson",
+              email: "sarah@example.com"
+            },
+            juniorBaker: {
+              fullName: "Emma Baker"
+            }
+          },
+          {
+            id: 2,
+            orderId: 2,
+            rating: 5,
+            comment: "I ordered cupcakes for my office party and everyone was raving about them! The chocolate ones were incredibly rich and the vanilla had the perfect balance of flavors. Will definitely order again!",
+            isVerifiedPurchase: true,
+            createdAt: new Date().toISOString(),
+            user: {
+              fullName: "Michael Chen",
+              email: "michael@example.com"
+            },
+            juniorBaker: {
+              fullName: "James Miller"
+            }
+          },
+          {
+            id: 3,
+            orderId: 3,
+            rating: 4,
+            comment: "Great selection of pastries! The croissants were flaky and buttery, just like the ones I had in Paris. The only reason I'm not giving 5 stars is that my order was delayed by 30 minutes, but the quality more than made up for it.",
+            isVerifiedPurchase: true,
+            createdAt: new Date().toISOString(),
+            user: {
+              fullName: "Emma Rodriguez",
+              email: "emma@example.com"
+            },
+            juniorBaker: {
+              fullName: "Sophie Davis"
+            }
+          },
+          {
+            id: 4,
+            orderId: 4,
+            rating: 5,
+            comment: "The wedding cake was a masterpiece! Not only did it look absolutely beautiful with the intricate sugar flowers, but it tasted divine. Our guests are still talking about it weeks later.",
+            isVerifiedPurchase: true,
+            createdAt: new Date().toISOString(),
+            user: {
+              fullName: "David & Lisa Thompson",
+              email: "david.lisa@example.com"
+            },
+            juniorBaker: {
+              fullName: "Emma Baker"
+            }
+          },
+          {
+            id: 5,
+            orderId: 5,
+            rating: 5,
+            comment: "I've been a regular customer for over a year now, and the consistency in quality is remarkable. The sourdough bread is my weekly staple - perfectly crusty outside, soft and airy inside.",
+            isVerifiedPurchase: true,
+            createdAt: new Date().toISOString(),
+            user: {
+              fullName: "Jennifer Wilson",
+              email: "jennifer@example.com"
+            },
+            juniorBaker: {
+              fullName: "James Miller"
+            }
+          }
+        ];
+        return res.json(mockReviews);
+      }
+      
       res.json(reviews);
     } catch (error) {
       console.error("Error fetching reviews:", error);
@@ -1537,6 +1949,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Verify the order belongs to this customer and is ready
       const order = await storage.getOrderById(parseInt(orderId));
+     
       if (!order) {
         return res.status(404).json({ message: "Order not found" });
       }
@@ -1673,7 +2086,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           // Low priority: deadline more than 3 days away and order is new
           else if (timeToDeadline > (3 * 24 * 60 * 60 * 1000) && daysSinceCreated < 1) {
-            priority = 'low';          }
+            priority = 'low';                   }
         }
 
         return {
@@ -1972,6 +2385,139 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Error manually distributing payment:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // ===== LIKED PRODUCTS ROUTES =====
+  
+  // Get user's liked products
+  app.get("/api/liked-products", authenticate, async (req, res) => {
+    try {
+      const likedProductsWithDetails = await db
+        .select({
+          id: likedProducts.id,
+          productId: likedProducts.productId,
+          createdAt: likedProducts.createdAt,
+          product: {
+            id: products.id,
+            name: products.name,
+            description: products.description,
+            price: products.price,
+            category: products.category,
+            subcategory: products.subcategory,
+            imageUrl: products.imageUrl,
+            inStock: products.inStock,
+            isBestSeller: products.isBestSeller,
+            isNew: products.isNew,
+          }
+        })
+        .from(likedProducts)
+        .innerJoin(products, eq(likedProducts.productId, products.id))
+        .where(eq(likedProducts.userId, req.user!.id))
+        .orderBy(likedProducts.createdAt);
+
+      res.json(likedProductsWithDetails.map(item => item.product));
+    } catch (error) {
+      console.error('Error fetching liked products:', error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  // Add product to liked products
+  app.post("/api/liked-products", authenticate, async (req, res) => {
+    try {
+      const { productId } = req.body;
+      
+      if (!productId) {
+        return res.status(400).json({ message: "Product ID is required" });
+      }
+      
+      // Check if product exists
+      const product = await db.select().from(products).where(eq(products.id, productId)).limit(1);
+      if (!product.length) {
+        return res.status(404).json({ message: "Product not found" });
+      }
+      
+      // Check if already liked
+      const existingLike = await db
+        .select()
+        .from(likedProducts)
+        .where(and(
+          eq(likedProducts.userId, req.user!.id),
+          eq(likedProducts.productId, productId)
+        ))
+        .limit(1);
+      
+      if (existingLike.length > 0) {
+        return res.status(400).json({ message: "Product already liked" });
+      }
+      
+      // Add to liked products
+      const newLikedProduct = await db
+        .insert(likedProducts)
+        .values({
+          userId: req.user!.id,
+          productId: productId
+        })
+        .returning();
+      
+      res.status(201).json({ message: "Product added to liked products", liked: true });
+    } catch (error) {
+      console.error('Error adding liked product:', error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  // Remove product from liked products
+  app.delete("/api/liked-products/:productId", authenticate, async (req, res) => {
+    try {
+      const productId = parseInt(req.params.productId);
+      
+      if (isNaN(productId)) {
+        return res.status(400).json({ message: "Invalid product ID" });
+      }
+      
+      const result = await db
+        .delete(likedProducts)
+        .where(and(
+          eq(likedProducts.userId, req.user!.id),
+          eq(likedProducts.productId, productId)
+        ))
+        .returning();
+      
+      if (result.length === 0) {
+        return res.status(404).json({ message: "Liked product not found" });
+      }
+      
+      res.json({ message: "Product removed from liked products", liked: false });
+    } catch (error) {
+      console.error('Error removing liked product:', error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Check if product is liked by user
+  app.get("/api/liked-products/check/:productId", authenticate, async (req, res) => {
+    try {
+      const productId = parseInt(req.params.productId);
+      
+      if (isNaN(productId)) {
+        return res.status(400).json({ message: "Invalid product ID" });
+      }
+      
+      const existingLike = await db
+        .select()
+        .from(likedProducts)
+        .where(and(
+          eq(likedProducts.userId, req.user!.id),
+          eq(likedProducts.productId, productId)
+        ))
+        .limit(1);
+      
+      res.json({ liked: existingLike.length > 0 });
+    } catch (error) {
+      console.error('Error checking liked status:', error);
       res.status(500).json({ message: "Internal server error" });
     }
   });

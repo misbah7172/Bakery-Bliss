@@ -1,11 +1,10 @@
-import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useMediaQuery } from "@/hooks/use-mobile";
 import { useAuth } from "@/hooks/use-auth";
 import Logo from "@/components/ui/logo";
 import CartIcon from "@/components/ui/cart-icon";
 import { Button } from "@/components/ui/button";
-import { Menu, X, Search, User } from "lucide-react";
+import { Menu, X, User, Home, Package, Cake, Info, Phone, Star } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -20,25 +19,18 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 const Navbar = () => {
   const [location] = useLocation();
   const isMobile = useMediaQuery("(max-width: 768px)");
-  const { user, logout } = useAuth();
-  const [searchQuery, setSearchQuery] = useState("");
-  
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    console.log("Searching for:", searchQuery);
-    // Implementation for search would go here
-  };    const navLinks = [
-    { label: "Home", href: "/" },
-    { label: "Products", href: "/products" },
-    { label: "Custom Cake Builder", href: "/custom-cake-builder" },
-    { label: "About", href: "/about" },
-    { label: "Contact", href: "/contact" },
+  const { user, logout } = useAuth();    const navLinks = [
+    { label: "Home", href: "/", icon: <Home className="w-4 h-4" /> },
+    { label: "Products", href: "/products", icon: <Package className="w-4 h-4" /> },
+    { label: "Custom Cake Builder", href: "/custom-cake-builder", icon: <Cake className="w-4 h-4" /> },
+    { label: "About", href: "/about", icon: <Info className="w-4 h-4" /> },
+    { label: "Contact", href: "/contact", icon: <Phone className="w-4 h-4" /> },
+    { label: "Reviews", href: "/reviews", icon: <Star className="w-4 h-4" /> },
   ];
   
   const renderDesktopNav = () => (
@@ -51,9 +43,10 @@ const Navbar = () => {
         <div className="hidden md:flex items-center space-x-8">
           {navLinks.map((link) => (
             <Link key={link.href} href={link.href}>
-              <div className={`navbar-link ${
+              <div className={`navbar-link flex items-center gap-2 ${
                 location === link.href ? "text-primary" : "text-foreground"
-              } hover:text-primary transition-colors cursor-pointer`}>
+              } hover:text-primary transition-colors cursor-pointer font-medium`}>
+                <span className="text-orange-500">{link.icon}</span>
                 {link.label}
               </div>
             </Link>
@@ -61,24 +54,6 @@ const Navbar = () => {
         </div>
         
         <div className="flex items-center space-x-4">
-          <div className="relative hidden md:block">
-            <form onSubmit={handleSearch}>
-              <Input
-                type="text"
-                placeholder="Search for delicious treats..."
-                className="w-64 pr-8"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-              <button
-                type="submit"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-primary"
-              >
-                <Search className="h-4 w-4" />
-              </button>
-            </form>
-          </div>
-          
           <CartIcon />
           
           {user ? (
@@ -86,6 +61,9 @@ const Navbar = () => {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="p-2">
                   <Avatar className="h-8 w-8">
+                    {user.profileImage ? (
+                      <AvatarImage src={user.profileImage} alt={user.fullName} />
+                    ) : null}
                     <AvatarFallback className="bg-primary text-white">
                       {user.fullName.split(" ").map(n => n[0]).join("")}
                     </AvatarFallback>
@@ -163,31 +141,14 @@ const Navbar = () => {
               </SheetHeader>
               
               <div className="mt-6">
-                <form onSubmit={handleSearch} className="mb-6">
-                  <div className="relative">
-                    <Input
-                      type="text"
-                      placeholder="Search..."
-                      className="pr-8"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                    />
-                    <button
-                      type="submit"
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-primary"
-                    >
-                      <Search className="h-4 w-4" />
-                    </button>
-                  </div>
-                </form>
-                
                 <div className="flex flex-col space-y-4">
                   {navLinks.map((link) => (
                     <SheetClose asChild key={link.href}>
                       <Link href={link.href}>
-                        <div className={`text-lg font-medium ${
+                        <div className={`text-lg font-medium flex items-center gap-3 ${
                           location === link.href ? "text-primary" : "text-foreground"
                         } cursor-pointer`}>
+                          <span className="text-orange-500">{link.icon}</span>
                           {link.label}
                         </div>
                       </Link>

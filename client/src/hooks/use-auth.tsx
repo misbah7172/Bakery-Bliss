@@ -27,6 +27,7 @@ interface RegisterData {
   username: string;
   password: string;
   fullName: string;
+  profileImage?: string;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -178,11 +179,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       navigate("/dashboard/customer");
     } catch (error) {
       console.error("Registration error:", error);
-      setError("Registration failed. Please try again.");
+      
+      let errorMessage = "Registration failed. Please try again.";
+      let toastDescription = "There was an error creating your account. Please try again.";
+      
+      if (error instanceof Error) {
+        if (error.message.includes("entity too large") || error.message.includes("413")) {
+          errorMessage = "Profile image is too large. Please choose a smaller image.";
+          toastDescription = "The profile image you selected is too large. Please choose a smaller image and try again.";
+        } else if (error.message.includes("User already exists")) {
+          errorMessage = "A user with this email already exists.";
+          toastDescription = "An account with this email already exists. Please use a different email or try logging in.";
+        } else if (error.message) {
+          errorMessage = error.message;
+          toastDescription = error.message;
+        }
+      }
+      
+      setError(errorMessage);
       
       toast({
         title: "Registration failed",
-        description: "There was an error creating your account. Please try again.",
+        description: toastDescription,
         variant: "destructive",
       });
     } finally {
