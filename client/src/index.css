@@ -87,10 +87,104 @@
   
   body {
     @apply bg-background text-foreground font-opensans;
+    background: linear-gradient(135deg, #fef7e7 0%, #fdf2f8 25%, #fef3f2 50%, #fef7e7 75%, #fdf2f8 100%);
+    background-size: 400% 400%;
+    animation: bakery-gradient 15s ease infinite;
+    position: relative;
+    overflow-x: hidden;
+    min-height: 100vh;
+  }
+  
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: 
+      radial-gradient(circle at 20% 20%, rgba(251, 146, 60, 0.1) 0%, transparent 50%),
+      radial-gradient(circle at 80% 80%, rgba(236, 72, 153, 0.1) 0%, transparent 50%),
+      radial-gradient(circle at 40% 60%, rgba(168, 85, 247, 0.05) 0%, transparent 50%),
+      radial-gradient(circle at 60% 20%, rgba(245, 158, 11, 0.08) 0%, transparent 40%),
+      radial-gradient(circle at 30% 80%, rgba(217, 70, 239, 0.06) 0%, transparent 45%);
+    animation: floating-bubbles 25s ease-in-out infinite;
+    pointer-events: none;
+    z-index: -2;
+  }
+  
+  body::after {
+    content: '🧁 🍰 🍪 🥖 ☕ 🎂 🍩 🥐 🧁 🍰 🍪 🥖 ☕ 🎂 🍩 🥐 🧁 🍰 🍪 🥖 ☕ 🎂 🍩 🥐';
+    position: fixed;
+    top: 0;
+    left: -100%;
+    width: 300%;
+    height: 100%;
+    font-size: 3rem;
+    opacity: 0.08;
+    animation: floating-icons 90s linear infinite;
+    pointer-events: none;
+    z-index: -1;
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+    letter-spacing: 4rem;
+    line-height: 1;
   }
   
   h1, h2, h3, h4, h5, h6 {
     @apply font-poppins font-semibold;
+  }
+}
+
+@keyframes bakery-gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  25% {
+    background-position: 100% 50%;
+  }
+  50% {
+    background-position: 100% 100%;
+  }
+  75% {
+    background-position: 0% 100%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes floating-bubbles {
+  0%, 100% {
+    transform: translateY(0px) scale(1);
+    opacity: 0.7;
+  }
+  33% {
+    transform: translateY(-20px) scale(1.1);
+    opacity: 0.4;
+  }
+  66% {
+    transform: translateY(10px) scale(0.9);
+    opacity: 0.8;
+  }
+}
+
+@keyframes floating-icons {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(50%);
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-10px) rotate(2deg);
   }
 }
 

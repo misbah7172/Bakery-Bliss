@@ -8,11 +8,13 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MessageCircle, Clock, Package, User } from "lucide-react";
 import ChatComponent from "@/components/ui/chat-simple";
+import DirectChat from "@/components/ui/direct-chat";
 
 interface MainBaker {
   id: number;
   fullName: string;
   email: string;
+  profileImage?: string;
 }
 
 interface AssignedOrder {
@@ -215,8 +217,8 @@ const JuniorBakerChat = () => {
                         >
                           <CardContent className="p-4">
                             <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                                <User className="h-5 w-5 text-blue-600" />
+                              <div className="w-10 h-10 bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center text-white font-bold">
+                                {baker.fullName.charAt(0)}
                               </div>
                               <div>
                                 <h3 className="font-semibold text-sm">{baker.fullName}</h3>
@@ -245,23 +247,26 @@ const JuniorBakerChat = () => {
               </div>
             ) : selectedMainBakerId ? (
               <div className="h-[600px]">
-                <Card className="h-full">
-                  <CardHeader>
-                    <CardTitle>Direct Communication</CardTitle>
-                  </CardHeader>
-                  <CardContent className="h-full flex items-center justify-center">
-                    <div className="text-center">
-                      <MessageCircle className="h-16 w-16 mx-auto text-gray-400 mb-4" />
-                      <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                        Direct Baker Chat Coming Soon
-                      </h3>
-                      <p className="text-gray-500 max-w-md">
-                        Direct communication with main bakers will be available soon. 
-                        For now, use order-based chat for urgent matters.
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
+                {(() => {
+                  const selectedBaker = mainBakers.find(b => b.id === selectedMainBakerId);
+                  return selectedBaker ? (
+                    <DirectChat 
+                      receiverId={selectedMainBakerId}
+                      receiverName={selectedBaker.fullName}
+                      receiverRole="main_baker"
+                    />
+                  ) : (
+                    <Card className="h-full">
+                      <CardContent className="h-full flex items-center justify-center">
+                        <div className="text-center">
+                          <MessageCircle className="h-16 w-16 mx-auto text-gray-400 mb-4" />
+                          <h3 className="text-lg font-semibold text-gray-900 mb-2">Baker Not Found</h3>
+                          <p className="text-gray-500">Please select a valid main baker to chat with.</p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })()}
               </div>
             ) : (
               <Card className="h-[600px]">

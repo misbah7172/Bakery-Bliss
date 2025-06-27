@@ -175,6 +175,7 @@ export const customCakes = pgTable("custom_cakes", {
 	
 	// New design-based fields
 	layers: text(),
+	shape: text(),
 	color: text(),
 	sideDesign: text("side_design"),
 	upperDesign: text("upper_design"),

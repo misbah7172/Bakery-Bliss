@@ -15,6 +15,13 @@
       "when": 1750794714489,
       "tag": "0001_bouncy_cobalt_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1750954447580,
+      "tag": "0002_cynical_blazing_skull",
+      "breakpoints": true
     }
   ]
 }

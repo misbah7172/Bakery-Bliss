@@ -1,13 +1,17 @@
 {
   "name": "pdf-generator",
   "version": "1.0.0",
-  "description": "Generate PDF from markdown documentation",
+  "description": "Generate PDF documentation for Bakery Bliss project",
   "main": "generate-pdf.js",
   "scripts": {
     "generate-pdf": "node generate-pdf.js"
   },
   "dependencies": {
     "puppeteer": "^21.0.0",
-    "marked": "^9.0.0"
+    "markdown-it": "^13.0.1",
+    "highlight.js": "^11.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
   }
 }

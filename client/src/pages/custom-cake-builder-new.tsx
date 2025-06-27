@@ -15,8 +15,16 @@ import { toast } from "sonner";
 interface CakeDesignOptions {
   layers: string[];
   colors: string[];
+  shapes: string[];
   sideDesigns: string[];
   upperDesigns: string[];
+  availableCombinations?: Array<{
+    layer: string;
+    shape: string;
+    color: string;
+    sideDesign: string;
+    upperDesign: string;
+  }>;
 }
 
 interface MainBaker {
@@ -33,6 +41,7 @@ interface MainBaker {
 interface CakeSelection {
   layers: string;
   color: string;
+  shape: string;
   sideDesign: string;
   upperDesign: string;
   pounds: number;
@@ -46,6 +55,7 @@ const CustomCakeBuilder = () => {
   const [selection, setSelection] = useState<CakeSelection>({
     layers: '',
     color: '',
+    shape: '',
     sideDesign: '',
     upperDesign: '',
     pounds: 1.0,
@@ -58,12 +68,24 @@ const CustomCakeBuilder = () => {
   const [designOptions, setDesignOptions] = useState<CakeDesignOptions>({
     layers: [],
     colors: [],
+    shapes: [],
     sideDesigns: [],
     upperDesigns: []
   });
   const [mainBakers, setMainBakers] = useState<MainBaker[]>([]);
   const [selectedBaker, setSelectedBaker] = useState<MainBaker | null>(null);
   const [showBakerProfile, setShowBakerProfile] = useState(false);
+  const [filteredOptions, setFilteredOptions] = useState<{
+    colors: string[];
+    shapes: string[];
+    sideDesigns: string[];
+    upperDesigns: string[];
+  }>({
+    colors: [],
+    shapes: [],
+    sideDesigns: [],
+    upperDesigns: []
+  });
 
   // Pricing configuration
   const PRICING = {
@@ -89,10 +111,17 @@ const CustomCakeBuilder = () => {
 
   // Update preview when selection changes
   useEffect(() => {
-    if (selection.layers && selection.color && selection.sideDesign && selection.upperDesign) {
+    if (selection.layers && selection.color && selection.shape && selection.sideDesign && selection.upperDesign) {
       updatePreview();
     }
-  }, [selection.layers, selection.color, selection.sideDesign, selection.upperDesign]);
+  }, [selection.layers, selection.color, selection.shape, selection.sideDesign, selection.upperDesign]);
+
+  // Update filtered options when selections change
+  useEffect(() => {
+    if (currentStep > 1) {
+      loadFilteredOptions();
+    }
+  }, [selection.layers, selection.shape, selection.color, selection.sideDesign, currentStep]);
 
   // Load design options from API
   const loadDesignOptions = async () => {
@@ -126,30 +155,65 @@ const CustomCakeBuilder = () => {
     }
   };
 
+  // Load filtered options based on current selections
+  const loadFilteredOptions = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (selection.layers) params.append('layer', selection.layers);
+      if (selection.shape) params.append('shape', selection.shape);
+      if (selection.color) params.append('color', selection.color);
+      if (selection.sideDesign) params.append('sideDesign', selection.sideDesign);
+
+      console.log('Loading filtered options with params:', params.toString());
+      const response = await fetch(`/api/cake-builder/filtered-options?${params.toString()}`);
+      if (response.ok) {
+        const options = await response.json();
+        console.log('Received filtered options:', options);
+        setFilteredOptions(options);
+      } else {
+        console.error('Failed to load filtered options');
+      }
+    } catch (error) {
+      console.error('Error loading filtered options:', error);
+    }
+  };
+
   // Generate design key for image lookup
   const generateDesignKey = (): string => {
-    return `${selection.color}_${selection.layers}_${selection.sideDesign}_${selection.upperDesign}`;
+    return `${selection.layers}, ${selection.shape}, ${selection.color}, ${selection.sideDesign}, ${selection.upperDesign}`;
   };
 
   // Update preview image
   const updatePreview = async () => {
     setIsLoadingPreview(true);
-    const designKey = generateDesignKey();
     
     try {
-      const response = await fetch(`/api/cake-builder/preview?key=${designKey}`);
+      const response = await fetch('/api/cake-builder/preview', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          layer: selection.layers,
+          shape: selection.shape,
+          color: selection.color,
+          sideDesign: selection.sideDesign,
+          upperDesign: selection.upperDesign,
+        }),
+      });
+      
       if (response.ok) {
         const result = await response.json();
         setDesignAvailable(result.available);
         setPreviewImage(result.available ? result.imageUrl : result.fallbackUrl);
       } else {
         setDesignAvailable(false);
-        setPreviewImage(null);
+        setPreviewImage('/design/fallback.jpeg');
       }
     } catch (error) {
       console.error('Error loading preview:', error);
       setDesignAvailable(false);
-      setPreviewImage(null);
+      setPreviewImage('/design/fallback.jpeg');
     } finally {
       setIsLoadingPreview(false);
     }
@@ -182,15 +246,44 @@ const CustomCakeBuilder = () => {
   const handleOptionSelect = (step: number, value: string) => {
     switch (step) {
       case 1:
-        setSelection(prev => ({ ...prev, layers: value }));
+        setSelection(prev => ({ 
+          ...prev, 
+          layers: value,
+          // Reset subsequent selections when layer changes
+          shape: '',
+          color: '',
+          sideDesign: '',
+          upperDesign: ''
+        }));
         break;
       case 2:
-        setSelection(prev => ({ ...prev, color: value }));
+        setSelection(prev => ({ 
+          ...prev, 
+          shape: value,
+          // Reset subsequent selections when shape changes
+          color: '',
+          sideDesign: '',
+          upperDesign: ''
+        }));
         break;
       case 3:
-        setSelection(prev => ({ ...prev, sideDesign: value }));
+        setSelection(prev => ({ 
+          ...prev, 
+          color: value,
+          // Reset subsequent selections when color changes
+          sideDesign: '',
+          upperDesign: ''
+        }));
         break;
       case 4:
+        setSelection(prev => ({ 
+          ...prev, 
+          sideDesign: value,
+          // Reset subsequent selections when side design changes
+          upperDesign: ''
+        }));
+        break;
+      case 5:
         setSelection(prev => ({ ...prev, upperDesign: value }));
         break;
     }
@@ -206,34 +299,47 @@ const CustomCakeBuilder = () => {
     setSelection(prev => ({ ...prev, mainBakerId: baker.id }));
     setSelectedBaker(baker);
     setShowBakerProfile(false);
-    setCurrentStep(7); // Move to final step
+    setCurrentStep(8); // Move to final step
   };
 
   // Get current step data
   const getCurrentStepData = () => {
+    let result;
     switch (currentStep) {
       case 1:
-        return { title: 'Choose Layers', options: designOptions.layers, icon: <Cake className="h-5 w-5" /> };
+        result = { title: 'Choose Layers', options: designOptions.layers, icon: <Cake className="h-5 w-5" /> };
+        break;
       case 2:
-        return { title: 'Select Color', options: designOptions.colors, icon: <Palette className="h-5 w-5" /> };
+        result = { title: 'Choose Shape', options: selection.layers ? filteredOptions.shapes : designOptions.shapes, icon: <Image className="h-5 w-5" /> };
+        break;
       case 3:
-        return { title: 'Side Design', options: designOptions.sideDesigns, icon: <Image className="h-5 w-5" /> };
+        result = { title: 'Select Color', options: selection.shape ? filteredOptions.colors : designOptions.colors, icon: <Palette className="h-5 w-5" /> };
+        break;
       case 4:
-        return { title: 'Upper Design', options: designOptions.upperDesigns, icon: <Image className="h-5 w-5" /> };
+        result = { title: 'Side Design', options: selection.color ? filteredOptions.sideDesigns : designOptions.sideDesigns, icon: <Image className="h-5 w-5" /> };
+        break;
       case 5:
-        return { title: 'Cake Weight', options: [], icon: <Scale className="h-5 w-5" /> };
+        result = { title: 'Upper Design', options: selection.sideDesign ? filteredOptions.upperDesigns : designOptions.upperDesigns, icon: <Image className="h-5 w-5" /> };
+        break;
       case 6:
-        return { title: 'Choose Main Baker', options: [], icon: <User className="h-5 w-5" /> };
+        result = { title: 'Cake Weight', options: [], icon: <Scale className="h-5 w-5" /> };
+        break;
       case 7:
-        return { title: 'Review & Order', options: [], icon: <ShoppingCart className="h-5 w-5" /> };
+        result = { title: 'Choose Main Baker', options: [], icon: <User className="h-5 w-5" /> };
+        break;
+      case 8:
+        result = { title: 'Review & Order', options: [], icon: <ShoppingCart className="h-5 w-5" /> };
+        break;
       default:
-        return { title: 'Step', options: [], icon: null };
+        result = { title: 'Step', options: [], icon: null };
     }
+    console.log(`Step ${currentStep} data:`, result, 'Selection:', selection, 'Filtered options:', filteredOptions);
+    return result;
   };
 
   // Navigate to next step
   const nextStep = () => {
-    if (currentStep < 7) {
+    if (currentStep < 8) {
       setCurrentStep(currentStep + 1);
     }
   };
@@ -249,12 +355,13 @@ const CustomCakeBuilder = () => {
   const isCurrentStepValid = (): boolean => {
     switch (currentStep) {
       case 1: return !!selection.layers;
-      case 2: return !!selection.color;
-      case 3: return !!selection.sideDesign;
-      case 4: return !!selection.upperDesign;
-      case 5: return selection.pounds > 0;
-      case 6: return !!selection.mainBakerId;
-      case 7: return designAvailable && !!selection.mainBakerId;
+      case 2: return !!selection.shape;
+      case 3: return !!selection.color;
+      case 4: return !!selection.sideDesign;
+      case 5: return !!selection.upperDesign;
+      case 6: return selection.pounds > 0;
+      case 7: return !!selection.mainBakerId;
+      case 8: return designAvailable && !!selection.mainBakerId;
       default: return false;
     }
   };
@@ -274,9 +381,10 @@ const CustomCakeBuilder = () => {
     try {
       // Create the custom cake object
       const customCakeData = {
-        name: `Custom Cake - ${selection.color} ${selection.layers}`,
+        name: `Custom Cake - ${selection.color} ${selection.layers} ${selection.shape}`,
         layers: selection.layers,
         color: selection.color,
+        shape: selection.shape,
         sideDesign: selection.sideDesign,
         upperDesign: selection.upperDesign,
         pounds: selection.pounds,
@@ -307,7 +415,7 @@ const CustomCakeBuilder = () => {
         ...createdCake,
         imageUrl: previewImage || '/design/fallback.jpeg',
         category: 'custom',
-        description: `Custom ${selection.layers} cake in ${selection.color} with ${selection.sideDesign} side design and ${selection.upperDesign} upper design`,
+        description: `Custom ${selection.layers} ${selection.shape} cake in ${selection.color} with ${selection.sideDesign} side design and ${selection.upperDesign} upper design`,
         price: calculatePrice(),
         inStock: true,
         isBestSeller: false,
@@ -322,6 +430,7 @@ const CustomCakeBuilder = () => {
       setSelection({
         layers: '',
         color: '',
+        shape: '',
         sideDesign: '',
         upperDesign: '',
         pounds: 1.0,
@@ -352,15 +461,15 @@ const CustomCakeBuilder = () => {
         {/* Progress Bar */}
         <div className="mb-8">
           <div className="flex justify-between items-center mb-2">
-            {[1, 2, 3, 4, 5, 6, 7].map((step) => (
-              <div key={step} className={`flex items-center ${step !== 7 ? 'flex-1' : ''}`}>
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((step) => (
+              <div key={step} className={`flex items-center ${step !== 8 ? 'flex-1' : ''}`}>
                 <div className={`
                   w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium
                   ${currentStep >= step ? 'bg-pink-600 text-white' : 'bg-gray-200 text-gray-600'}
                 `}>
                   {step}
                 </div>
-                {step !== 7 && (
+                {step !== 8 && (
                   <div className={`h-1 flex-1 mx-2 ${currentStep > step ? 'bg-pink-600' : 'bg-gray-200'}`} />
                 )}
               </div>
@@ -368,6 +477,7 @@ const CustomCakeBuilder = () => {
           </div>
           <div className="flex justify-between text-xs text-gray-500 mt-1">
             <span>Layers</span>
+            <span>Shape</span>
             <span>Color</span>
             <span>Side</span>
             <span>Upper</span>
@@ -384,33 +494,66 @@ const CustomCakeBuilder = () => {
               <CardTitle className="flex items-center gap-2">
                 {stepData.icon}
                 {stepData.title}
+                {currentStep > 1 && (
+                  <Badge variant="secondary" className="ml-auto">
+                    {stepData.options.length} available
+                  </Badge>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {/* Steps 1-4: Design Options */}
-              {currentStep >= 1 && currentStep <= 4 && (
-                <div className="grid grid-cols-2 gap-3">
-                  {stepData.options.map((option) => (
-                    <Button
-                      key={option}
-                      variant={
-                        (currentStep === 1 && selection.layers === option) ||
-                        (currentStep === 2 && selection.color === option) ||
-                        (currentStep === 3 && selection.sideDesign === option) ||
-                        (currentStep === 4 && selection.upperDesign === option)
-                          ? "default" : "outline"
-                      }
-                      onClick={() => handleOptionSelect(currentStep, option)}
-                      className="h-12 capitalize"
-                    >
-                      {option.replace('_', ' ')}
-                    </Button>
-                  ))}
+              {/* Show filtering info for steps 2+ */}
+              {currentStep > 1 && currentStep <= 5 && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                  <p className="text-sm text-blue-700">
+                    {currentStep === 2 && "Shapes available for your selected layer"}
+                    {currentStep === 3 && "Colors available for your selected layer and shape"}
+                    {currentStep === 4 && "Side designs available for your current selections"}
+                    {currentStep === 5 && "Upper designs available for your current selections"}
+                  </p>
                 </div>
               )}
 
-              {/* Step 5: Pounds Selection */}
-              {currentStep === 5 && (
+              {/* Steps 1-5: Design Options */}
+              {currentStep >= 1 && currentStep <= 5 && (
+                <>
+                  {stepData.options.length === 0 && currentStep > 1 ? (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                      <div className="flex items-center gap-2 text-yellow-800">
+                        <AlertCircle className="h-4 w-4" />
+                        <span className="text-sm font-medium">No Options Available</span>
+                      </div>
+                      <p className="text-sm text-yellow-700 mt-1">
+                        No {stepData.title.toLowerCase()} options are available for your current selections. 
+                        Please go back and try different options.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-3">
+                      {stepData.options.map((option) => (
+                        <Button
+                          key={option}
+                          variant={
+                            (currentStep === 1 && selection.layers === option) ||
+                            (currentStep === 2 && selection.shape === option) ||
+                            (currentStep === 3 && selection.color === option) ||
+                            (currentStep === 4 && selection.sideDesign === option) ||
+                            (currentStep === 5 && selection.upperDesign === option)
+                              ? "default" : "outline"
+                          }
+                          onClick={() => handleOptionSelect(currentStep, option)}
+                          className="h-12 capitalize"
+                        >
+                          {option.replace('_', ' ')}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Step 6: Pounds Selection */}
+              {currentStep === 6 && (
                 <div className="space-y-4">
                   <div>
                     <Label htmlFor="pounds">Cake Weight (pounds)</Label>
@@ -461,8 +604,8 @@ const CustomCakeBuilder = () => {
                 </div>
               )}
 
-              {/* Step 6: Main Baker Selection */}
-              {currentStep === 6 && (
+              {/* Step 7: Main Baker Selection */}
+              {currentStep === 7 && (
                 <div className="space-y-4">
                   <p className="text-sm text-gray-600">
                     Choose a main baker who will handle your custom cake order:
@@ -522,14 +665,15 @@ const CustomCakeBuilder = () => {
                 </div>
               )}
 
-              {/* Step 7: Review */}
-              {currentStep === 7 && (
+              {/* Step 8: Review */}
+              {currentStep === 8 && (
                 <div className="space-y-4">
                   <div className="bg-gray-50 p-4 rounded-lg">
                     <h4 className="font-medium mb-2">Order Summary</h4>
                     <div className="space-y-1 text-sm">
                       <p><strong>Layers:</strong> {selection.layers.replace('_', ' ')}</p>
                       <p><strong>Color:</strong> {selection.color}</p>
+                      <p><strong>Shape:</strong> {selection.shape}</p>
                       <p><strong>Side Design:</strong> {selection.sideDesign}</p>
                       <p><strong>Upper Design:</strong> {selection.upperDesign}</p>
                       <p><strong>Weight:</strong> {selection.pounds} pounds</p>
@@ -574,7 +718,7 @@ const CustomCakeBuilder = () => {
                   Previous
                 </Button>
                 
-                {currentStep < 7 ? (
+                {currentStep < 8 ? (
                   <Button
                     onClick={nextStep}
                     disabled={!isCurrentStepValid()}
@@ -646,6 +790,7 @@ const CustomCakeBuilder = () => {
               <div className="space-y-2">
                 <div className="flex flex-wrap gap-2">
                   {selection.layers && <Badge variant="secondary">{selection.layers}</Badge>}
+                  {selection.shape && <Badge variant="secondary">{selection.shape}</Badge>}
                   {selection.color && <Badge variant="secondary">{selection.color}</Badge>}
                   {selection.sideDesign && <Badge variant="secondary">{selection.sideDesign}</Badge>}
                   {selection.upperDesign && <Badge variant="secondary">{selection.upperDesign}</Badge>}

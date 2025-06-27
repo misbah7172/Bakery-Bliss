@@ -35,12 +35,16 @@ import {
   UserPlus,
   ChefHat,
   Calendar,
-  DollarSign
+  DollarSign,
+  Crown,
+  Trophy,
+  Star,
+  Mail,
+  MessageSquare
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { format } from "date-fns";
 import { toast } from "sonner";
-import BakerEarnings from "@/components/BakerEarnings";
 
 interface Order {
   id: number;
@@ -112,6 +116,24 @@ export default function MainBakerDashboard() {
     enabled: !!user
   });
 
+  // Fetch real earnings data
+  const { data: earnings, isLoading: earningsLoading } = useQuery<{
+    bakerId: number;
+    totalEarnings: number;
+    earningsBreakdown: Array<{
+      orderId: number;
+      amount: string;
+      percentage: string;
+      bakerType: string;
+      createdAt: string;
+      orderNumber: string;
+      orderTotal: string;
+    }>;
+  }>({
+    queryKey: ["/api/my-earnings"],
+    enabled: !!user
+  });
+
   // Fetch orders for main baker
   const { data: orders, isLoading: ordersLoading } = useQuery<Order[]>({
     queryKey: ["/api/orders"],
@@ -131,7 +153,7 @@ export default function MainBakerDashboard() {
 
   // Fetch pending applications
   const { data: applications } = useQuery<BakerApplication[]>({
-    queryKey: ["/api/baker-applications/pending"],
+    queryKey: ["/api/baker-applications/main-baker"],
     enabled: !!user
   });  // Assign order to junior baker OR take order themselves mutation
   const assignOrderMutation = useMutation({
@@ -174,7 +196,7 @@ export default function MainBakerDashboard() {
   // Handle application response mutation
   const handleApplicationMutation = useMutation({
     mutationFn: async ({ applicationId, status }: { applicationId: number; status: string }) => {
-      const response = await fetch(`/api/baker-applications/${applicationId}/main-baker`, {
+      const response = await fetch(`/api/baker-applications/${applicationId}/main-baker-review`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -188,8 +210,8 @@ export default function MainBakerDashboard() {
       return response.json();
     },
     onSuccess: (_, { status }) => {
-      toast.success(`Application ${status === 'accepted' ? 'accepted' : 'rejected'}!`);
-      queryClient.invalidateQueries({ queryKey: ["/api/baker-applications/pending"] });
+      toast.success(`Application ${status === 'approved' ? 'approved' : 'rejected'}!`);
+      queryClient.invalidateQueries({ queryKey: ["/api/baker-applications/main-baker"] });
       queryClient.invalidateQueries({ queryKey: [`/api/users/main-baker/${user?.id}/junior-bakers`] });
     },
     onError: () => {
@@ -241,57 +263,117 @@ export default function MainBakerDashboard() {
 
   return (
     <AppLayout showSidebar sidebarType="main">
-      <div className="container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">Main Baker Dashboard</h1>
-          <p className="text-gray-600">Manage your team and assign orders to junior bakers</p>
+      {/* Bakery-themed Hero Section */}
+      <div className="relative mb-8 rounded-3xl overflow-hidden bg-gradient-to-br from-purple-100 via-pink-100 to-orange-100 shadow-xl mx-4">
+        <div className="absolute inset-0 bg-gradient-to-r from-purple-400/20 to-orange-400/20"></div>
+        
+        {/* Floating Elements */}
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute top-4 right-8 animate-bounce delay-100">
+            <Crown className="w-6 h-6 text-yellow-400 opacity-60" />
+          </div>
+          <div className="absolute bottom-6 left-12 animate-bounce delay-300">
+            <Trophy className="w-5 h-5 text-purple-400 opacity-50" />
+          </div>
+          <div className="absolute top-8 left-1/4 animate-bounce delay-500">
+            <Star className="w-4 h-4 text-orange-400 opacity-70" />
+          </div>
         </div>
+        
+        <div className="relative z-10 px-8 py-12">
+          <div className="inline-flex items-center gap-2 bg-white/30 backdrop-blur-sm rounded-full px-4 py-2 mb-4">
+            <ChefHat className="w-5 h-5 text-purple-600" />
+            <span className="text-gray-700 font-medium">Master Baker Dashboard</span>
+          </div>
+          
+          <h1 className="font-poppins font-bold text-3xl md:text-4xl mb-2 bg-gradient-to-r from-purple-600 via-pink-600 to-orange-600 bg-clip-text text-transparent">
+            Welcome, Chef {user.fullName}!
+          </h1>
+          <p className="text-gray-600 text-lg">
+            Lead your team to create culinary masterpieces 👨‍🍳
+          </p>
+        </div>
+      </div>
+      
+      <div className="container mx-auto px-4 py-8">
 
-        {/* Stats Cards */}
+        {/* Earnings Overview */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <Card>
+          <Card className="bg-gradient-to-br from-green-50 to-emerald-50 border-green-200 shadow-lg hover:shadow-xl transition-all duration-300">
             <CardContent className="p-6">
-              <div className="flex items-center">
-                <Package className="h-8 w-8 text-blue-600" />
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Total Orders</p>
-                  <p className="text-2xl font-bold">{stats?.totalOrders || 0}</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-green-700">Total Earnings</p>
+                  <p className="text-2xl font-bold text-green-800">
+                    ${earningsLoading ? "..." : (earnings?.totalEarnings || 0).toFixed(2)}
+                  </p>
+                </div>
+                <div className="bg-green-500/20 p-2 rounded-full">
+                  <DollarSign className="h-6 w-6 text-green-600" />
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-gradient-to-br from-blue-50 to-cyan-50 border-blue-200 shadow-lg hover:shadow-xl transition-all duration-300">
             <CardContent className="p-6">
-              <div className="flex items-center">
-                <Clock className="h-8 w-8 text-yellow-600" />
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Pending Orders</p>
-                  <p className="text-2xl font-bold">{stats?.pendingOrders || 0}</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-blue-700">This Month</p>
+                  <p className="text-2xl font-bold text-blue-800">
+                    ${earningsLoading ? "..." : (() => {
+                      const breakdown = earnings?.earningsBreakdown || [];
+                      const thisMonthEarnings = breakdown
+                        .filter(item => {
+                          const itemDate = new Date(item.createdAt);
+                          const now = new Date();
+                          return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
+                        })
+                        .reduce((sum, item) => sum + parseFloat(item.amount), 0);
+                      return thisMonthEarnings.toFixed(2);
+                    })()}
+                  </p>
+                </div>
+                <div className="bg-blue-500/20 p-2 rounded-full">
+                  <Calendar className="h-6 w-6 text-blue-600" />
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-gradient-to-br from-purple-50 to-indigo-50 border-purple-200 shadow-lg hover:shadow-xl transition-all duration-300">
             <CardContent className="p-6">
-              <div className="flex items-center">
-                <Users className="h-8 w-8 text-green-600" />
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Junior Bakers</p>
-                  <p className="text-2xl font-bold">{stats?.juniorBakers || 0}</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-purple-700">Completed Orders</p>
+                  <p className="text-2xl font-bold text-purple-800">
+                    {earningsLoading ? "..." : (earnings?.earningsBreakdown?.length || 0)}
+                  </p>
+                </div>
+                <div className="bg-purple-500/20 p-2 rounded-full">
+                  <CheckCircle className="h-6 w-6 text-purple-600" />
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-gradient-to-br from-orange-50 to-amber-50 border-orange-200 shadow-lg hover:shadow-xl transition-all duration-300">
             <CardContent className="p-6">
-              <div className="flex items-center">
-                <DollarSign className="h-8 w-8 text-purple-600" />
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Revenue</p>
-                  <p className="text-2xl font-bold">{formatCurrency(stats?.revenue || 0)}</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-orange-700">Avg per Order</p>
+                  <p className="text-2xl font-bold text-orange-800">
+                    ${earningsLoading ? "..." : (() => {
+                      const breakdown = earnings?.earningsBreakdown || [];
+                      const totalOrders = breakdown.length;
+                      const totalEarnings = earnings?.totalEarnings || 0;
+                      const averageEarningsPerOrder = totalOrders > 0 ? totalEarnings / totalOrders : 0;
+                      return averageEarningsPerOrder.toFixed(2);
+                    })()}
+                  </p>
+                </div>
+                <div className="bg-orange-500/20 p-2 rounded-full">
+                  <DollarSign className="h-6 w-6 text-orange-600" />
                 </div>
               </div>
             </CardContent>
@@ -432,55 +514,89 @@ export default function MainBakerDashboard() {
               </CardContent>
             </Card>          </div>
 
-          {/* Earnings Section */}
-          <div className="col-span-2">
-            <BakerEarnings />
-          </div>
-
           {/* Team & Applications */}
           <div className="space-y-6">
             {/* Junior Baker Applications */}
             {applications && applications.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <UserPlus className="h-5 w-5 mr-2" />
+              <Card className="bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 border-purple-200 shadow-xl hover:shadow-2xl transition-all duration-300">
+                <CardHeader className="bg-gradient-to-r from-purple-100 to-pink-100 rounded-t-lg">
+                  <CardTitle className="flex items-center text-purple-800">
+                    <div className="p-2 bg-purple-200 rounded-full mr-3">
+                      <UserPlus className="h-5 w-5 text-purple-600" />
+                    </div>
                     New Applications
+                    <div className="ml-auto bg-purple-600 text-white text-xs px-2 py-1 rounded-full">
+                      {applications.length}
+                    </div>
                   </CardTitle>
-                  <CardDescription>
-                    Review junior baker applications
+                  <CardDescription className="text-purple-600">
+                    🎂 Review junior baker applications from aspiring team members
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
+                <CardContent className="p-6">
+                  <div className="space-y-6">
                     {applications.map((application) => (
-                      <div key={application.id} className="border rounded-lg p-4">
-                        <div className="mb-3">
-                          <p className="font-medium">{application.applicantName}</p>
-                          <p className="text-sm text-gray-600">{application.applicantEmail}</p>
+                      <div key={application.id} className="bg-white/70 backdrop-blur-sm border border-purple-200 rounded-xl p-6 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02]">
+                        {/* Applicant Header */}
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center text-white font-bold text-lg shadow-lg">
+                              {application.applicantName?.charAt(0) || 'A'}
+                            </div>
+                            <div>
+                              <h3 className="font-bold text-lg text-gray-800">{application.applicantName}</h3>
+                              <p className="text-purple-600 text-sm flex items-center">
+                                <Mail className="h-3 w-3 mr-1" />
+                                {application.applicantEmail}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-xs font-medium">
+                            ⏰ Pending Review
+                          </div>
                         </div>
                         
-                        <p className="text-sm mb-3">{application.reason}</p>
+                        {/* Application Text */}
+                        <div className="mb-6">
+                          <h4 className="font-semibold text-gray-700 mb-2 flex items-center">
+                            <MessageSquare className="h-4 w-4 mr-2 text-purple-500" />
+                            Why they want to join your team:
+                          </h4>
+                          <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-4 rounded-lg border-l-4 border-purple-400">
+                            <p className="text-gray-700 leading-relaxed">{application.reason}</p>
+                          </div>
+                        </div>
                         
-                        <div className="flex gap-2">
+                        {/* Action Buttons */}
+                        <div className="flex gap-3">
                           <Button 
                             size="sm" 
-                            onClick={() => handleApplication(application.id, 'accepted')}
+                            onClick={() => handleApplication(application.id, 'approved')}
                             disabled={handleApplicationMutation.isPending}
+                            className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white shadow-lg hover:shadow-xl transition-all duration-300 flex-1"
                           >
-                            <CheckCircle className="h-4 w-4 mr-1" />
-                            Accept
+                            <CheckCircle className="h-4 w-4 mr-2" />
+                            Accept & Welcome to Team
                           </Button>
                           <Button 
                             size="sm" 
                             variant="outline"
                             onClick={() => handleApplication(application.id, 'rejected')}
                             disabled={handleApplicationMutation.isPending}
+                            className="border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400 transition-all duration-300 flex-1"
                           >
-                            <XCircle className="h-4 w-4 mr-1" />
-                            Reject
+                            <XCircle className="h-4 w-4 mr-2" />
+                            Decline Application
                           </Button>
                         </div>
+                        
+                        {/* Loading State */}
+                        {handleApplicationMutation.isPending && (
+                          <div className="mt-3 flex items-center justify-center text-purple-600">
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600 mr-2"></div>
+                            Processing application...
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -489,41 +605,56 @@ export default function MainBakerDashboard() {
             )}
 
             {/* Junior Bakers Team */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <ChefHat className="h-5 w-5 mr-2" />
-                  Your Team
+            <Card className="bg-gradient-to-br from-green-50 via-teal-50 to-blue-50 border-teal-200 shadow-xl hover:shadow-2xl transition-all duration-300">
+              <CardHeader className="bg-gradient-to-r from-teal-100 to-blue-100 rounded-t-lg">
+                <CardTitle className="flex items-center text-teal-800">
+                  <div className="p-2 bg-teal-200 rounded-full mr-3">
+                    <ChefHat className="h-5 w-5 text-teal-600" />
+                  </div>
+                  Your Dream Team
+                  {juniorBakers && juniorBakers.length > 0 && (
+                    <div className="ml-auto bg-teal-600 text-white text-xs px-2 py-1 rounded-full">
+                      {juniorBakers.length} bakers
+                    </div>
+                  )}
                 </CardTitle>
-                <CardDescription>
-                  Junior bakers working with you
+                <CardDescription className="text-teal-600">
+                  👨‍🍳 Junior bakers creating magic with you
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-6">
                 {juniorBakers && juniorBakers.length > 0 ? (
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     {juniorBakers.map((baker) => (
-                      <div key={baker.id} className="flex items-center gap-3 p-3 border rounded-lg">
-                        <Avatar>
-                          <AvatarImage src={baker.profileImage} />
-                          <AvatarFallback>
-                            {baker.fullName.split(' ').map(n => n[0]).join('')}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1">
-                          <p className="font-medium">{baker.fullName}</p>
-                          <p className="text-sm text-gray-600">
-                            {baker.completedOrders} orders completed
-                          </p>
+                      <div key={baker.id} className="bg-white/70 backdrop-blur-sm border border-teal-200 rounded-xl p-4 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02]">
+                        <div className="flex items-center gap-4">
+                          <Avatar className="w-12 h-12 border-2 border-teal-300 shadow-lg">
+                            <AvatarImage src={baker.profileImage} />
+                            <AvatarFallback className="bg-gradient-to-br from-teal-400 to-blue-400 text-white font-bold">
+                              {baker.fullName.split(' ').map(n => n[0]).join('')}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1">
+                            <h3 className="font-bold text-gray-800">{baker.fullName}</h3>
+                            <div className="flex items-center text-sm text-teal-600">
+                              <Star className="h-3 w-3 mr-1 text-yellow-500" />
+                              {baker.completedOrders} orders completed
+                            </div>
+                          </div>
+                          <div className="bg-teal-100 text-teal-700 px-3 py-1 rounded-full text-xs font-medium">
+                            🏆 Active
+                          </div>
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center py-6 text-gray-500">
-                    <Users className="h-12 w-12 mx-auto mb-2 text-gray-300" />
-                    <p>No junior bakers yet</p>
-                    <p className="text-sm">Applications will appear above</p>
+                  <div className="text-center py-8">
+                    <div className="w-16 h-16 bg-gradient-to-br from-teal-200 to-blue-200 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <Users className="h-8 w-8 text-teal-500" />
+                    </div>
+                    <h3 className="font-semibold text-gray-700 mb-2">No team members yet</h3>
+                    <p className="text-gray-500 text-sm">Accept applications to build your dream team!</p>
                   </div>
                 )}
               </CardContent>

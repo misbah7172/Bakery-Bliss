@@ -54,7 +54,9 @@ export interface IStorage {
   getUserOrders(userId: number): Promise<Order[]>;
   getUserOrdersWithDetails(userId: number): Promise<any[]>;
   getMainBakerOrders(mainBakerId: number): Promise<Order[]>;
+  getMainBakerOrdersWithDetails(mainBakerId: number): Promise<any[]>;
   getJuniorBakerOrders(juniorBakerId: number): Promise<Order[]>;
+  getJuniorBakerOrdersWithDetails(juniorBakerId: number): Promise<any[]>;
   getAllOrders(): Promise<Order[]>;
   getOrderByOrderId(orderId: string): Promise<any>;
   updateOrderStatus(orderId: number, status: "pending" | "processing" | "quality_check" | "ready" | "delivered" | "cancelled"): Promise<Order | undefined>;
@@ -75,6 +77,7 @@ export interface IStorage {
   createBakerTeam(team: InsertBakerTeam): Promise<BakerTeam>;
   getJuniorBakersByMainBaker(mainBakerId: number): Promise<User[]>;
   getMainBakerByJuniorBaker(juniorBakerId: number): Promise<User | undefined>;
+  removeJuniorBakerFromTeam(juniorBakerId: number): Promise<void>;
   updateUserCompletedOrders(userId: number): Promise<void>;
   getUsersWithRole(role: string): Promise<User[]>;
   
@@ -101,6 +104,7 @@ export interface IStorage {
   getAllUsers(): Promise<User[]>;
   getAllOrdersWithDetails(): Promise<any[]>;
   getAllBakerApplications(): Promise<BakerApplication[]>;
+  getCustomerToJuniorBakerApplications(): Promise<BakerApplication[]>;
   deleteUser(userId: number): Promise<void>;
   updateProduct(productId: number, updateData: any): Promise<Product>;
   deleteProduct(productId: number): Promise<void>;
@@ -426,6 +430,75 @@ export class DatabaseStorage implements IStorage {
       .from(orders)
       .where(eq(orders.mainBakerId, mainBakerId))
       .orderBy(desc(orders.createdAt));
+  }
+  
+  // Get main baker orders with detailed information including custom cakes
+  async getMainBakerOrdersWithDetails(mainBakerId: number): Promise<any[]> {
+    // First get the orders
+    const ordersList = await db.select()
+      .from(orders)
+      .where(eq(orders.mainBakerId, mainBakerId))
+      .orderBy(desc(orders.createdAt));
+
+    // For each order, get the order items with custom cake details
+    const ordersWithDetails = await Promise.all(
+      ordersList.map(async (order) => {
+        // Get order items
+        const items = await db.select({
+          id: orderItems.id,
+          quantity: orderItems.quantity,
+          pricePerItem: orderItems.pricePerItem,
+          productId: orderItems.productId,
+          customCakeId: orderItems.customCakeId,
+        })
+        .from(orderItems)
+        .where(eq(orderItems.orderId, order.id));
+
+        // Get custom cake details and product details for each item
+        const itemsWithDetails = await Promise.all(
+          items.map(async (item) => {
+            let customCake = null;
+            let product = null;
+
+            if (item.customCakeId) {
+              customCake = await db.select()
+                .from(customCakes)
+                .where(eq(customCakes.id, item.customCakeId))
+                .limit(1);
+              customCake = customCake[0] || null;
+            }
+
+            if (item.productId) {
+              product = await db.select()
+                .from(products)
+                .where(eq(products.id, item.productId))
+                .limit(1);
+              product = product[0] || null;
+            }
+
+            return {
+              ...item,
+              customCake,
+              product
+            };
+          })
+        );
+
+        // Get shipping info
+        const shipping = await db.select()
+          .from(shippingInfo)
+          .where(eq(shippingInfo.orderId, order.id))
+          .limit(1);
+
+        return {
+          ...order,
+          items: itemsWithDetails,
+          shippingInfo: shipping[0] || null
+        };
+      })
+    );
+
+    return ordersWithDetails;
   }
   
   async getJuniorBakerOrders(juniorBakerId: number): Promise<Order[]> {
@@ -1187,7 +1260,33 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllBakerApplications(): Promise<BakerApplication[]> {
-    return await db.select().from(bakerApplications).orderBy(desc(bakerApplications.createdAt));
+    // Get applications with user details - ONLY pending junior_baker -> main_baker applications for admin
+    const applications = await db.select({
+      id: bakerApplications.id,
+      userId: bakerApplications.userId,
+      currentRole: bakerApplications.currentRole,
+      requestedRole: bakerApplications.requestedRole,
+      reason: bakerApplications.reason,
+      status: bakerApplications.status,
+      reviewedBy: bakerApplications.reviewedBy,
+      createdAt: bakerApplications.createdAt,
+      updatedAt: bakerApplications.updatedAt,
+      mainBakerId: bakerApplications.mainBakerId,
+      // User details
+      applicantName: users.fullName,
+      email: users.email,
+      username: users.username,
+    })
+    .from(bakerApplications)
+    .leftJoin(users, eq(bakerApplications.userId, users.id))
+    .where(and(
+      eq(bakerApplications.currentRole, 'junior_baker'),
+      eq(bakerApplications.requestedRole, 'main_baker'),
+      eq(bakerApplications.status, 'pending')
+    ))
+    .orderBy(desc(bakerApplications.createdAt));
+
+    return applications as any;
   }
 
   async deleteUser(userId: number): Promise<void> {
@@ -1558,6 +1657,146 @@ export class DatabaseStorage implements IStorage {
         eq(orders.status, 'processing')
       ))
       .orderBy(desc(orders.updatedAt));
+  }
+
+  async getJuniorBakerOrdersWithDetails(juniorBakerId: number): Promise<any[]> {
+    try {
+      // Get all orders assigned to this junior baker
+      const ordersData = await db.select({
+        id: orders.id,
+        orderId: orders.orderId,
+        status: orders.status,
+        totalAmount: orders.totalAmount,
+        createdAt: orders.createdAt,
+        deadline: orders.deadline,
+        userId: orders.userId,
+        mainBakerId: orders.mainBakerId,
+        juniorBakerId: orders.juniorBakerId
+      })
+      .from(orders)
+      .where(eq(orders.juniorBakerId, juniorBakerId))
+      .orderBy(desc(orders.createdAt));
+
+      if (ordersData.length === 0) {
+        return [];
+      }
+
+      const orderIds = ordersData.map(order => order.id);
+
+      // Get order items for these orders
+      const orderItemsData = await db.select({
+        id: orderItems.id,
+        orderId: orderItems.orderId,
+        quantity: orderItems.quantity,
+        pricePerItem: orderItems.pricePerItem,
+        productId: orderItems.productId,
+        customCakeId: orderItems.customCakeId
+      })
+      .from(orderItems)
+      .where(inArray(orderItems.orderId, orderIds));
+
+      // Get product details
+      const productIds = orderItemsData.filter(item => item.productId).map(item => item.productId!);
+      const productsData = productIds.length > 0 ? await db.select()
+        .from(products)
+        .where(inArray(products.id, productIds)) : [];
+
+      // Get custom cake details
+      const customCakeIds = orderItemsData.filter(item => item.customCakeId).map(item => item.customCakeId!);
+      const customCakesData = customCakeIds.length > 0 ? await db.select()
+        .from(customCakes)
+        .where(inArray(customCakes.id, customCakeIds)) : [];
+
+      // Get shipping info
+      const shippingData = await db.select()
+        .from(shippingInfo)
+        .where(inArray(shippingInfo.orderId, orderIds));
+
+      // Get customer names
+      const userIds = ordersData.map(order => order.userId);
+      const usersData = await db.select({
+        id: users.id,
+        fullName: users.fullName
+      })
+      .from(users)
+      .where(inArray(users.id, userIds));
+
+      // Combine all data
+      const detailedOrders = ordersData.map(order => {
+        const orderItemsList = orderItemsData
+          .filter(item => item.orderId === order.id)
+          .map(item => {
+            const itemData: any = {
+              id: item.id,
+              quantity: item.quantity,
+              pricePerItem: item.pricePerItem,
+              productId: item.productId,
+              customCakeId: item.customCakeId
+            };
+
+            if (item.productId) {
+              itemData.product = productsData.find(p => p.id === item.productId);
+            }
+
+            if (item.customCakeId) {
+              itemData.customCake = customCakesData.find(c => c.id === item.customCakeId);
+            }
+
+            return itemData;
+          });
+
+        const customerInfo = usersData.find(user => user.id === order.userId);
+        const shipping = shippingData.find(s => s.orderId === order.id);
+
+        return {
+          ...order,
+          items: orderItemsList,
+          customerName: customerInfo?.fullName,
+          shippingInfo: shipping
+        };
+      });
+
+      return detailedOrders;
+    } catch (error) {
+      console.error('Error fetching junior baker orders with details:', error);
+      throw error;
+    }
+  }
+
+  async getCustomerToJuniorBakerApplications(): Promise<BakerApplication[]> {
+    // Get applications with user details - customer -> junior_baker applications for main bakers
+    const applications = await db.select({
+      id: bakerApplications.id,
+      userId: bakerApplications.userId,
+      currentRole: bakerApplications.currentRole,
+      requestedRole: bakerApplications.requestedRole,
+      reason: bakerApplications.reason,
+      status: bakerApplications.status,
+      reviewedBy: bakerApplications.reviewedBy,
+      createdAt: bakerApplications.createdAt,
+      updatedAt: bakerApplications.updatedAt,
+      mainBakerId: bakerApplications.mainBakerId,
+      // User details
+      applicantName: users.fullName,
+      email: users.email,
+      username: users.username,
+    })
+    .from(bakerApplications)
+    .leftJoin(users, eq(bakerApplications.userId, users.id))
+    .where(and(
+      eq(bakerApplications.currentRole, 'customer'),
+      eq(bakerApplications.requestedRole, 'junior_baker')
+    ))
+    .orderBy(desc(bakerApplications.createdAt));
+
+    return applications as any;
+  }
+
+  // Remove junior baker from all teams (when promoted to main baker)
+  async removeJuniorBakerFromTeam(juniorBakerId: number): Promise<void> {
+    await db.update(bakerTeams)
+      .set({ isActive: false })
+      .where(eq(bakerTeams.juniorBakerId, juniorBakerId));
   }
 }
 

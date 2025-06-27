@@ -86,6 +86,7 @@ export const customCakes = pgTable("custom_cakes", {
   
   // New design-based fields
   layers: text("layers"), // e.g., "2layer", "3layer"
+  shape: text("shape"), // e.g., "round shape", "heart shape"
   color: text("color"), // e.g., "pink", "green", "red"
   sideDesign: text("side_design"), // e.g., "butterfly", "strawberry"
   upperDesign: text("upper_design"), // e.g., "rose", "butterfly"
@@ -207,6 +208,24 @@ export const bakerEarnings = pgTable("baker_earnings", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Liked products table
+export const likedProducts = pgTable("liked_products", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  productId: integer("product_id").notNull().references(() => products.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Direct chat table - for direct communication between junior bakers and main bakers
+export const directChats = pgTable("direct_chats", {
+  id: serial("id").primaryKey(),
+  senderId: integer("sender_id").references(() => users.id).notNull(),
+  receiverId: integer("receiver_id").references(() => users.id).notNull(),
+  message: text("message").notNull(),
+  timestamp: timestamp("timestamp").defaultNow(),
+  isRead: boolean("is_read").default(false),
+});
+
 // Create insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertProductSchema = createInsertSchema(products).omit({ id: true, createdAt: true });
@@ -224,6 +243,8 @@ export const insertBakerApplicationSchema = createInsertSchema(bakerApplications
 export const insertBakerTeamSchema = createInsertSchema(bakerTeams).omit({ id: true, assignedAt: true });
 export const insertReviewSchema = createInsertSchema(reviews).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertBakerEarningSchema = createInsertSchema(bakerEarnings).omit({ id: true, createdAt: true });
+export const insertLikedProductSchema = createInsertSchema(likedProducts).omit({ id: true, createdAt: true });
+export const insertDirectChatSchema = createInsertSchema(directChats).omit({ id: true, timestamp: true });
 
 // Define types
 export type User = typeof users.$inferSelect;
@@ -273,3 +294,9 @@ export type InsertReview = z.infer<typeof insertReviewSchema>;
 
 export type BakerEarning = typeof bakerEarnings.$inferSelect;
 export type InsertBakerEarning = z.infer<typeof insertBakerEarningSchema>;
+
+export type LikedProduct = typeof likedProducts.$inferSelect;
+export type InsertLikedProduct = z.infer<typeof insertLikedProductSchema>;
+
+export type DirectChat = typeof directChats.$inferSelect;
+export type InsertDirectChat = z.infer<typeof insertDirectChatSchema>;
