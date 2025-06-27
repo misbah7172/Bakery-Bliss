@@ -125,7 +125,7 @@ graph TB
 
 1. **Clone the Sweet Repository** 🍯
 ```bash
-git clone https://github.com/yourusername/bakery-bliss.git
+git clone https://github.com/misbah/bakery-bliss.git
 cd bakery-bliss
 ```
 
@@ -160,8 +160,7 @@ npm run db:seed
 # Start development server
 npm run dev
 
-# Server runs on http://localhost:5000
-# Frontend runs on http://localhost:5173
+# Project runs on http://localhost:5000
 ```
 
 ---
@@ -370,7 +369,7 @@ POST /api/custom-cakes             // Save custom design
 ### Common Issues
 1. **Database Connection**: Ensure PostgreSQL is running
 2. **Environment Variables**: Verify .env configuration
-3. **Port Conflicts**: Check if ports 5000/5173 are available
+3. **Port Conflicts**: Check if ports 5000 are available
 
 ---
 
@@ -391,9 +390,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support & Contact
 
-- **📧 Email**: support@bakerybliss.com
-- **💬 Discord**: [Join our community](https://discord.gg/bakerybliss)
-- **🐛 Issues**: [GitHub Issues](https://github.com/yourusername/bakery-bliss/issues)
+- **📧 Email**: misbah244176@gmail.com
+- **🐛 Issues**: [GitHub Issues](https://github.com/misbah7172/bakery-bliss/issues)
 - **📖 Documentation**: [Full Docs](https://docs.bakerybliss.com)
 
 ---
