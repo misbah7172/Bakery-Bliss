@@ -1,0 +1,16 @@
+{
+  "name": "srs-pdf-generator",
+  "version": "1.0.0",
+  "description": "PDF generator for SRS Bakery Bliss document",
+  "main": "generate-srs-pdf.js",
+  "scripts": {
+    "generate-pdf": "node generate-srs-pdf.js",
+    "install-deps": "npm install"
+  },
+  "dependencies": {
+    "puppeteer": "^21.0.0",
+    "marked": "^9.0.0"
+  },
+  "keywords": ["pdf", "markdown", "srs", "documentation"],
+  "author": "Team Anonymous"
+}
