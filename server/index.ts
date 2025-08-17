@@ -24,7 +24,7 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: false, // Set to true in production with HTTPS
+    secure: process.env.NODE_ENV === 'production', // Enable secure cookies in production
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
@@ -80,13 +80,13 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
-  // ALWAYS serve the app on port 5000
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = 5000;
+  // Use Railway's PORT environment variable or fallback to 5000
+  const port = process.env.PORT || 5000;
+  const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost';
+  
   server.listen({
-    port,
-    host: "localhost"
+    port: Number(port),
+    host
   }, () => {
     log(`serving on port ${port}`);
   });
