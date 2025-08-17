@@ -1,5 +1,8 @@
 # Railway deployment configuration
-FROM node:18-alpine
+FROM node:20-alpine
+
+# Install Python and build tools for native modules
+RUN apk add --no-cache python3 make g++
 
 # Set working directory
 WORKDIR /app
