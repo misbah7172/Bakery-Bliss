@@ -15,13 +15,26 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    target: 'es2020',
+    minify: 'esbuild',
     rollupOptions: {
       output: {
         manualChunks: undefined,
+      },
+      external: (id) => {
+        // Don't bundle any optional rollup dependencies
+        if (id.includes('@rollup/rollup-')) return true;
+        return false;
       }
     }
   },
   optimizeDeps: {
-    force: true
+    force: true,
+    esbuildOptions: {
+      target: 'es2020'
+    }
+  },
+  esbuild: {
+    target: 'es2020'
   }
 });

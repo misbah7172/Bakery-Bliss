@@ -1,0 +1,24 @@
+[build]
+buildCommand = "npm run build"
+
+[deploy]
+startCommand = "npm start"
+healthcheckPath = "/"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+
+[[services]]
+name = "bakery-bliss"
+
+[services.env]
+NODE_ENV = "production"
+ROLLUP_BUNDLER = "native"
+# Force rollup to use the correct binary
+ROLLUP_OS = "linux"
+ROLLUP_CPU = "x64"
+ROLLUP_LIBC = "glibc"
+# Skip optional dependencies that might cause issues
+SKIP_OPTIONALS = "false"
+# Build configuration
+BUILD_ENV = "production"

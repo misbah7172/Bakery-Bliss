@@ -1,8 +1,5 @@
-# Railway deployment configuration
-FROM node:20-alpine
-
-# Install Python and build tools for native modules
-RUN apk add --no-cache python3 make g++
+# Railway deployment configuration - using standard node image
+FROM node:20
 
 # Set working directory
 WORKDIR /app
@@ -10,8 +7,11 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install all dependencies (including dev deps for build)
-RUN npm ci
+# Install ALL dependencies (including dev for build)
+RUN npm install
+
+# Force install the correct rollup binary for Linux x64 GNU
+RUN npm install @rollup/rollup-linux-x64-gnu@^4.24.4 --no-save || echo "Optional rollup binary installation failed, continuing..."
 
 # Copy source code
 COPY . .
