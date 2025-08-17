@@ -18,3 +18,5 @@ docs/
 .railway
 coverage/
 .nyc_output/
+*.md
+!RAILWAY_DEPLOYMENT.md
